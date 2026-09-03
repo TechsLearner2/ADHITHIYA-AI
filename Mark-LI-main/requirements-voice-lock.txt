@@ -1,0 +1,5 @@
+# Optional dependencies for local voice lock.
+# These are intentionally separate from requirements.txt because the speaker
+# stack may need platform-specific wheels and is not required for normal Live mode.
+openwakeword>=0.6.0
+resemblyzer>=0.2.2
