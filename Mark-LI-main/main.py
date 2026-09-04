@@ -911,7 +911,9 @@ class AdhithiyaAssistant:
             try:
                 answer = await self._chat_turn(stripped)
             except Exception as e:
-                answer = f"Something went wrong: {e}"
+                print(f"[ADHITHIYA] Turn error: {e}")
+                answer = ("Sorry — I hit a problem reaching the AI brain. "
+                          "Check your connection and try again.")
             if answer:
                 await self._speak_text(answer)
         asyncio.run_coroutine_threadsafe(_do(), self._loop)
@@ -2093,7 +2095,8 @@ class AdhithiyaAssistant:
                 answer = await self._chat_turn(user_text)
             except Exception as e:
                 print(f"[ADHITHIYA] Turn error: {e}")
-                answer = f"Something went wrong: {e}"
+                answer = ("Sorry — I hit a problem reaching the AI brain. "
+                          "Check your connection and try again.")
             if answer:
                 await self._speak_text(answer)
             if not self.ui.muted:

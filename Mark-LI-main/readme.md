@@ -8,8 +8,9 @@ your screen, and controls your computer — by voice. The AI brain runs on
 optional paid upgrade, both behind one provider layer (`core/llm.py`), so
 swapping is a one-line config change.
 
-- **Free (default):** Groq — `llama-3.3-70b-versatile` chat + `whisper-large-v3-turbo`
-  speech-to-text, with your Mac's built-in `say` voice for speech.
+- **Free (default):** Groq — `openai/gpt-oss-120b` chat (auto-falls back to
+  `gpt-oss-20b` / `kimi-k2`) + `whisper-large-v3-turbo` speech-to-text, with your
+  Mac's built-in `say` voice for speech.
 - **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
   `gpt-image-1` image generation (the only way to get images / screen-vision).
 
@@ -111,7 +112,7 @@ committed**). Useful options:
   "groq_api_key": "gsk-…",
   "assistant_name": "ADHITHIYA",
   "user_name": "",
-  "chat_model": "llama-3.3-70b-versatile",
+  "chat_model": "openai/gpt-oss-120b",
   "stt_model": "whisper-large-v3-turbo",
   "say_voice": "",
   "morning_brief_enabled": true,
@@ -126,7 +127,7 @@ committed**). Useful options:
 | `provider` | Which brain to use: `groq` (free, default) or `openai` (paid) |
 | `groq_api_key` / `openai_api_key` | API key for the active provider |
 | `assistant_name` / `user_name` | Change what it calls itself / you |
-| `chat_model` | Chat model (Groq default `llama-3.3-70b-versatile`; OpenAI default `gpt-4o-mini`) |
+| `chat_model` | Chat model (Groq default `openai/gpt-oss-120b`; OpenAI default `gpt-4o-mini`) |
 | `stt_model` | Speech-to-text model (Groq default `whisper-large-v3-turbo`; OpenAI default `whisper-1`) |
 | `say_voice` | macOS voice name for speech on Groq (e.g. `Samantha`); leave empty for the system voice |
 | `tts_voice` | OpenAI speaking voice — `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`, `coral`, `sage`, `ash`, `ballad` (OpenAI provider only) |

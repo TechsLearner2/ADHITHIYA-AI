@@ -4,7 +4,7 @@ Every AI call in ADHITHIYA goes through here. Two providers sit behind one
 interface; switching is a one-line config change, never a code rewrite.
 
     provider = "groq"   (default — FREE, no credit card)
-        chat  → llama-3.3-70b-versatile   (free tier)
+        chat  → openai/gpt-oss-120b (free) → gpt-oss-20b / kimi-k2 fallbacks
         STT   → whisper-large-v3-turbo    (free tier)
         TTS   → the Mac's built-in `say` voice (free, offline)
         image → not available on Groq (vision/image need OpenAI)
@@ -44,8 +44,14 @@ TTS_FALLBACK         = "tts-1"
 
 DEFAULT_PROVIDER     = "groq"
 GROQ_BASE_URL        = "https://api.groq.com/openai/v1"
-GROQ_CHAT_MODEL      = "llama-3.3-70b-versatile"
+# Groq retired the free Llama 3.x models (moved to "Enterprise"); the current
+# free chat models are the GPT-OSS family and Kimi K2. We keep an ordered
+# fallback list and auto-advance on "model_not_found", so a Groq retirement can
+# never brick the assistant again.
+GROQ_CHAT_MODEL      = "openai/gpt-oss-120b"
+GROQ_CHAT_FALLBACKS  = ["openai/gpt-oss-20b", "moonshotai/kimi-k2-instruct"]
 GROQ_STT_MODEL       = "whisper-large-v3-turbo"
+GROQ_STT_FALLBACKS   = ["whisper-large-v3"]
 
 _CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}
 
@@ -117,6 +123,41 @@ def temperature() -> float:
         return 0.7
 
 
+def _model_unavailable(err: Exception) -> bool:
+    """True if the provider rejected the model id (retired / no access)."""
+    code = getattr(err, "status_code", None) or getattr(err, "code", None)
+    text = str(err)
+    return (
+        code in (404, 402)
+        or "model_not_found" in text
+        or "does not exist" in text
+        or "no longer" in text.lower()
+        or ("not found" in text.lower() and "model" in text.lower())
+    )
+
+
+def _chat_models() -> list[str]:
+    """Ordered chat-model candidates for the active provider (first valid wins)."""
+    if provider() != "groq":
+        return [chat_model()]
+    out = [chat_model()]
+    for m in GROQ_CHAT_FALLBACKS:
+        if m not in out:
+            out.append(m)
+    return out
+
+
+def _stt_models() -> list[str]:
+    """Ordered STT-model candidates for the active provider."""
+    if provider() != "groq":
+        return [stt_model()]
+    out = [stt_model()]
+    for m in GROQ_STT_FALLBACKS:
+        if m not in out:
+            out.append(m)
+    return out
+
+
 def _client():
     from openai import OpenAI
     kwargs = {"api_key": get_api_key(), "max_retries": 2, "timeout": 60.0}
@@ -135,31 +176,43 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
     tools:    OpenAI tool format (type:"function" ...).
     """
     client = _client()
-    kwargs: dict = {
-        "model": chat_model(),
-        "messages": messages,
-        "temperature": temperature() if temp is None else temp,
-    }
-    if tools:
-        kwargs["tools"] = tools
-        kwargs["tool_choice"] = "auto"
-    if max_tokens:
-        kwargs["max_tokens"] = max_tokens
+    last_err: Exception | None = None
+    for model_id in _chat_models():
+        kwargs: dict = {
+            "model": model_id,
+            "messages": messages,
+            "temperature": temperature() if temp is None else temp,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
 
-    resp = client.chat.completions.create(**kwargs)
-    msg = resp.choices[0].message
-    tool_calls = []
-    for tc in (msg.tool_calls or []):
         try:
-            args = json.loads(tc.function.arguments or "{}")
-        except (json.JSONDecodeError, TypeError):
-            args = {}
-        tool_calls.append({
-            "id": tc.id,
-            "name": tc.function.name,
-            "arguments": args,
-        })
-    return {"text": (msg.content or "").strip(), "tool_calls": tool_calls}
+            resp = client.chat.completions.create(**kwargs)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            if _model_unavailable(e):
+                print(f"[LLM] Model {model_id!r} unavailable — trying next…")
+                continue
+            raise
+
+        msg = resp.choices[0].message
+        tool_calls = []
+        for tc in (msg.tool_calls or []):
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            tool_calls.append({
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": args,
+            })
+        return {"text": (msg.content or "").strip(), "tool_calls": tool_calls}
+
+    raise (last_err or RuntimeError("no chat model available"))
 
 
 def chat_with_image(prompt: str, image_bytes: bytes, mime: str = "image/png") -> str:
@@ -236,11 +289,21 @@ def _coerce_image(item) -> tuple[bytes, str]:
 def transcribe_wav(wav_bytes: bytes) -> str:
     """Transcribe a WAV audio blob with Whisper. Returns text ('' on failure)."""
     client = _client()
-    resp = client.audio.transcriptions.create(
-        model=stt_model(),
-        file=("audio.wav", wav_bytes, "audio/wav"),
-    )
-    return (resp.text or "").strip()
+    last_err: Exception | None = None
+    for model_id in _stt_models():
+        try:
+            resp = client.audio.transcriptions.create(
+                model=model_id,
+                file=("audio.wav", wav_bytes, "audio/wav"),
+            )
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            if _model_unavailable(e):
+                print(f"[LLM] STT model {model_id!r} unavailable — trying next…")
+                continue
+            raise
+        return (resp.text or "").strip()
+    raise (last_err or RuntimeError("no STT model available"))
 
 
 # ── text-to-speech ────────────────────────────────────────────────────────────
