@@ -8,7 +8,7 @@ No other file needs to change — ADHITHIYA discovers this automatically at star
 PLUGIN = {
     "name": "my_plugin",                     # snake_case, unique, ^[a-zA-Z_][a-zA-Z0-9_]{0,63}$
     "description": (
-        "One or two sentences Gemini uses to decide when to call this tool. "
+        "One or two sentences the LLM uses to decide when to call this tool. "
         "Be explicit about trigger phrases and, if it could be confused with "
         "another tool, say which tool NOT to use instead (see game_updater's "
         "description in main.py for the pattern)."
@@ -24,8 +24,8 @@ PLUGIN = {
 
 def run(parameters: dict, player=None, session_memory=None) -> str:
     """
-    parameters: dict of the args Gemini extracted, matching PLUGIN['parameters'].
-    player: the JarvisUI instance — use player.write_log(f"ADHITHIYA: ...") to log,
+    parameters: dict of the args the LLM extracted, matching PLUGIN['parameters'].
+    player: the UI instance — use player.write_log(f"ADHITHIYA: ...") to log,
             same as actions/*.py. May be None.
     session_memory: reserved, usually None today (core tools mostly pass None too).
     Return a short natural-language string — this is spoken back to the user.

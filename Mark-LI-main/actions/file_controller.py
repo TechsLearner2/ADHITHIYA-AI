@@ -17,7 +17,7 @@ _SAFE_ROOTS: list[Path] = [
 ]
 
 def _is_safe_path(target: Path) -> bool:
-    """Verilen path _SAFE_ROOTS içinde mi? Değilse işlemi reddet."""
+    """Is the given path inside _SAFE_ROOTS? Reject the operation if not."""
     try:
         resolved = target.resolve()
         return any(
@@ -181,7 +181,7 @@ def delete_file(path: str, name: str = "") -> str:
         if not target.exists():
             return f"Not found: {target.name}"
 
-        # Güvenli dizin kontrolü — kritik kullanıcı klasörlerini koru
+        # Safe-directory check — protect critical user folders
         protected = {
             _get_desktop(), _get_downloads(), _get_documents(),
             _get_pictures(), _get_music(), _get_videos(), Path.home()
@@ -324,7 +324,7 @@ def find_files(name: str = "", extension: str = "",
 
         results    = []
         dir_count  = 0
-        max_dirs   = 500  # performans + güvenlik limiti
+        max_dirs   = 500  # performance + safety limit
 
         for item in search_path.rglob("*"):
             if item.is_dir():
@@ -418,7 +418,7 @@ def organize_desktop() -> str:
 
     try:
         for item in desktop.iterdir():
-            # Klasörlere, gizli dosyalara ve organize klasörlerine dokunma
+            # Don't touch folders, hidden files, or organise-* folders
             if item.is_dir() or item.name.startswith("."):
                 continue
             if item.name in {k for k in type_map}:

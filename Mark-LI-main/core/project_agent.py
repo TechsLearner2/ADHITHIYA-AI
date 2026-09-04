@@ -1,6 +1,6 @@
 """A small, local, safety-first agent for working on the current project.
 
-The Gemini Live session may suggest a plan, but this module is the authority
+The voice assistant may suggest a plan, but this module is the authority
 for what can be written or executed.  It never invokes a shell and every path
 and command is checked before it reaches the operating system.
 """

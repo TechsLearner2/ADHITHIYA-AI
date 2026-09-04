@@ -15,8 +15,7 @@ numpy==1.26.4             # last numpy with macOS 12 wheels (opencv 4.9 needs <2
 opencv-python==4.9.0.80   # last opencv that installs cleanly on macOS 12
 
 sounddevice
-google-genai>=2.8.0
-google-generativeai
+openai>=1.40
 pillow
 requests
 beautifulsoup4

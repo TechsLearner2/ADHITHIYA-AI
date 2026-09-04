@@ -58,8 +58,8 @@ _YT_VIDEO_FILTER = "EgIQAQ%3D%3D"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from core.llm import get_api_key
+    return get_api_key()
 
 
 def _open_url(url: str) -> None:
@@ -166,25 +166,16 @@ def _get_transcript(video_id: str) -> str | None:
         return None
 
 
-def _summarize_with_gemini(transcript: str, video_url: str) -> str:
-    from google import genai as _genai
-    from google.genai import types
-
-    _client = _genai.Client(api_key=_get_api_key())
+def _summarize_with_llm(transcript: str, video_url: str) -> str:
+    from core.llm import generate_content
     max_chars = 80000
     truncated = transcript[:max_chars] + ("..." if len(transcript) > max_chars else "")
-    response  = _client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=f"Please summarize this YouTube video transcript:\n\n{truncated}",
-        config=types.GenerateContentConfig(
-            system_instruction=(
-                "You are ADHITHIYA, a cinematic onboard AI assistant. "
-                "Summarize YouTube video transcripts clearly and concisely. "
-                "Structure: 1-sentence overview, then 3-5 key points. "
-                "Be direct. Address the user as 'sir'. "
-                "Match the language of the transcript."
-            )
-        )
+    response  = generate_content(
+        "You are ADHITHIYA, a cinematic onboard AI assistant. Summarize "
+        "YouTube video transcripts clearly and concisely. Structure: "
+        "1-sentence overview, then 3-5 key points. Be direct. Address the "
+        "user as 'sir'. Match the language of the transcript.\n\n"
+        f"Please summarize this YouTube video transcript:\n\n{truncated}"
     )
     return response.text.strip()
 
@@ -331,7 +322,7 @@ def _handle_summarize(parameters: dict, player, speak) -> str:
         speak("Transcript retrieved. Generating summary now.")
 
     try:
-        summary = _summarize_with_gemini(transcript, url)
+        summary = _summarize_with_llm(transcript, url)
     except Exception as e:
         return f"Summary generation failed, sir: {e}"
 

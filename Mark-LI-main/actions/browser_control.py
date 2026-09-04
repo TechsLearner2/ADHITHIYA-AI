@@ -112,7 +112,7 @@ def _real_profile_dir(browser: str) -> str:
             print(f"[Browser] ✅ Real profile found for {browser}: {p}")
             return str(p)
 
-    fallback = home / ".jarvis_profiles" / browser
+    fallback = home / ".adhithiya_profiles" / browser
     fallback.mkdir(parents=True, exist_ok=True)
     print(f"[Browser] ⚠️  Real profile not found for {browser}, using: {fallback}")
     return str(fallback)
@@ -374,12 +374,12 @@ _WIN_EXE_HINTS: dict[str, str] = {"chrome": "chrome", "edge": "msedge"}
 
 def _open_native(url: str, browser_name: Optional[str]) -> str:
     """
-    Kullanıcının GERÇEK tarayıcısını normal şekilde açar — kendi profili,
-    giriş yapılmış hesapları ve eklentileriyle. Otomasyon bağlanmaz, bu yüzden
-    about:blank sekmesi veya boş profil ASLA görünmez.
-    url boş ise tarayıcı URL'siz başlatılır (kendi açılış sayfası /
-    oturum geri yükleme ile) — tıpkı kullanıcının kendisi açmış gibi.
-    Windows / macOS / Linux üçünde de çalışır.
+    Opens the user's REAL browser normally — with their own profile,
+    logged-in accounts and extensions. No automation attaches, so an
+    about:blank tab or empty profile NEVER appears.
+    If url is empty the browser launches without a URL (its own start page /
+    session restore) — exactly as if the user had opened it themselves.
+    Works on Windows / macOS / Linux alike.
     """
     url = _normalize_url(url) if url and url.strip() else ""
     if url == "about:blank":
@@ -389,7 +389,7 @@ def _open_native(url: str, browser_name: Optional[str]) -> str:
     if browser_name:
         name = _ALIASES.get(browser_name.lower().strip(), browser_name.lower().strip())
     elif not url:
-        # URL yok → sadece pencere açılacak; varsayılan tarayıcının exe'si gerekir
+        # No URL → just open the window; the default browser's executable is needed
         name = _detect_default_browser()
 
     # Specific browser → launch its own executable, exactly like the user would.
@@ -448,8 +448,8 @@ def _open_native(url: str, browser_name: Optional[str]) -> str:
 
 class _BrowserSession:
     """
-    Bir tarayıcı örneği için tam oturum.
-    Tüm tarayıcılar launch_persistent_context ile gerçek profil üzerinde açılır.
+    A full session for one browser instance.
+    All browsers open on the real profile via launch_persistent_context.
     """
 
     def __init__(self, browser_name: str):
@@ -510,9 +510,9 @@ class _BrowserSession:
 
     async def _adopt_page(self) -> Page:
         """
-        launch_persistent_context zaten bir başlangıç sekmesi açar.
-        Yeni bir boş sekme (about:blank) açmak yerine o sekmeyi devralır —
-        böylece kullanıcı fazladan boş sekme görmez.
+        launch_persistent_context already opens an initial tab.
+        Instead of opening a new blank tab (about:blank) we adopt that tab —
+        so the user never sees an extra blank tab.
         """
         await asyncio.sleep(0.3)
         pages = self._context.pages
@@ -520,8 +520,8 @@ class _BrowserSession:
 
     async def _launch(self):
         """
-        Tarayıcıyı gerçek kullanıcı profiliyle başlatır.
-        Context zaten açıksa hiçbir şey yapmaz.
+        Launches the browser with the real user profile.
+        Does nothing if the context is already open.
         """
         if self._context is not None:
             return
@@ -538,7 +538,7 @@ class _BrowserSession:
 
         if engine_name == "firefox":
             profile = _firefox_profile_dir() or str(
-                Path.home() / ".jarvis_profiles" / "firefox"
+                Path.home() / ".adhithiya_profiles" / "firefox"
             )
             kwargs: dict = {
                 "headless":    False,
@@ -553,16 +553,16 @@ class _BrowserSession:
                 self._context = await engine_obj.launch_persistent_context(profile, **kwargs)
             except Exception as e:
                 print(f"[Browser] Firefox real profile failed ({e}), using ADHITHIYA profile")
-                jarvis = str(Path.home() / ".jarvis_profiles" / "firefox_jarvis")
-                Path(jarvis).mkdir(parents=True, exist_ok=True)
-                self._context = await engine_obj.launch_persistent_context(jarvis, **kwargs)
+                adhithiya = str(Path.home() / ".adhithiya_profiles" / "firefox_adhithiya")
+                Path(adhithiya).mkdir(parents=True, exist_ok=True)
+                self._context = await engine_obj.launch_persistent_context(adhithiya, **kwargs)
 
             self._page = await self._adopt_page()
             print(f"[Browser] ✅ Firefox launched")
             return
 
         if engine_name == "webkit":
-            safari_profile = str(Path.home() / ".jarvis_profiles" / "safari")
+            safari_profile = str(Path.home() / ".adhithiya_profiles" / "safari")
             Path(safari_profile).mkdir(parents=True, exist_ok=True)
             kwargs = {
                 "headless":    False,
@@ -612,16 +612,16 @@ class _BrowserSession:
         except Exception as e:
             print(f"[Browser] ⚠️  Real profile failed for {label}: {e}")
 
-        # Gerçek profil açılamadı (tarayıcı zaten açık / kilitli profil / yeni
-        # Chrome sürümleri otomasyonla gerçek profili engelliyor). Kalıcı
-        # ADHITHIYA otomasyon profiline geçilir — buraya bir kez giriş yapılan
-        # hesaplar sonraki oturumlarda da açık kalır.
-        jarvis_profile = str(Path.home() / ".jarvis_profiles" / self.browser_name)
-        Path(jarvis_profile).mkdir(parents=True, exist_ok=True)
-        print(f"[Browser] Retrying with ADHITHIYA profile: {jarvis_profile}")
+        # Real profile couldn't be opened (browser already open / locked profile
+        # / newer Chrome blocks automation of the real profile). Fall back to the
+        # persistent ADHITHIYA automation profile — accounts signed in here once
+        # stay signed in across sessions.
+        adhithiya_profile = str(Path.home() / ".adhithiya_profiles" / self.browser_name)
+        Path(adhithiya_profile).mkdir(parents=True, exist_ok=True)
+        print(f"[Browser] Retrying with ADHITHIYA profile: {adhithiya_profile}")
 
         try:
-            self._context = await engine_obj.launch_persistent_context(jarvis_profile, **kwargs)
+            self._context = await engine_obj.launch_persistent_context(adhithiya_profile, **kwargs)
             self._page = await self._adopt_page()
             print(f"[Browser] ✅ Launched [{label}] with ADHITHIYA profile "
                   f"(sign-ins persist across sessions)")
@@ -845,7 +845,7 @@ class _BrowserSession:
         return f"{self.browser_name} closed."
 
 class _SessionRegistry:
-    """Tüm aktif tarayıcı oturumlarını yönetir."""
+    """Manages all active browser sessions."""
 
     def __init__(self):
         self._sessions:        dict[str, _BrowserSession] = {}
@@ -854,7 +854,7 @@ class _SessionRegistry:
         self._last_native_url: str                        = ""
 
     def has(self, browser_name: str | None = None) -> bool:
-        """Bu tarayıcı için (veya hiç) aktif bir otomasyon oturumu var mı?"""
+        """Is there an active automation session for this browser (or any)?"""
         with self._lock:
             if not browser_name:
                 return bool(self._sessions)
@@ -865,7 +865,7 @@ class _SessionRegistry:
         self._last_native_url = url
 
     def pop_native_url(self) -> str:
-        """Son native açılan URL'yi bir kez döndürür (tekrarı önlemek için tüketilir)."""
+        """Returns the last natively-opened URL once (consumed to avoid repeats)."""
         url, self._last_native_url = self._last_native_url, ""
         return url
 
@@ -969,12 +969,12 @@ def browser_control(
         _log(player, result)
         return result
 
-    # ── Gezinme HER ZAMAN native ─────────────────────────────────────────────
-    # go_to / search / new_tab siteyi kullanıcının kendi tarayıcısında açar —
-    # kendi profili, giriş yapılmış hesapları ve açılış sayfasıyla; tıpkı
-    # kullanıcının kendisi açmış gibi. about:blank'li kontrollü pencere burada
-    # asla açılmaz. Tek istisna: hâlihazırda süren bir otomasyon akışı varsa
-    # gezinme o pencerede devam eder (çok adımlı görevler bölünmesin diye).
+    # ── Navigation is ALWAYS native ──────────────────────────────────────────
+    # go_to / search / new_tab open the site in the user's own browser — with
+    # their profile, logged-in accounts and start page; exactly as if the user
+    # had opened it themselves. A controlled about:blank window never opens
+    # here. One exception: if an automation flow is already running, navigation
+    # continues in that window (so multi-step tasks don't get split up).
     if action in ("go_to", "search", "new_tab"):
         if _registry.has(browser):
             sess = _registry.get(browser)
@@ -1006,10 +1006,10 @@ def browser_control(
         _log(player, result)
         return result
 
-    # ── Etkileşimli aksiyonlar (tıklama/yazma/okuma…) ────────────────────────
-    # Bunlar fiziksel olarak kontrol edilebilir bir tarayıcı gerektirir;
-    # yalnızca burada otomasyon penceresi açılır ve açılır açılmaz kullanıcının
-    # son gezindiği sayfaya gider — boş sayfada beklemez.
+    # ── Interactive actions (click/type/read…) ──────────────────────────────
+    # These need a physically controllable browser; only here does the
+    # automation window open, and as soon as it does it goes straight to the
+    # page the user was last on — never waiting on a blank page.
     try:
         sess = _registry.get(browser)
     except Exception as e:

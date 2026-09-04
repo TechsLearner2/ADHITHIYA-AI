@@ -1,4 +1,4 @@
-"""Tests for the self-authoring plugin builder (no network, no Gemini)."""
+"""Tests for the self-authoring plugin builder (no network, no LLM calls)."""
 import sys
 from pathlib import Path
 

@@ -9,7 +9,7 @@ much they've drunk today; the running total lives in memory/water_state.json
 and resets each morning, so ADHITHIYA remembers across sessions.
 
 Pure Python, no third-party dependency, cross-OS, language-neutral (spoken
-lines are phrased by Gemini in the user's language; the HUD panel is just
+lines are phrased by the LLM in the user's language; the HUD panel is just
 emojis + numbers).
 """
 

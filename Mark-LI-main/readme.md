@@ -2,13 +2,11 @@
 
 ### A real-time, voice-first personal AI assistant for your Mac
 
-ADHITHIYA is a JARVIS-style assistant that hears you, talks back, sees your
-screen, and controls your computer — by voice. It runs on the **Gemini Live**
-API for ultra-low-latency, two-way voice conversation.
-
-> **Based on** [Mark-LI](https://github.com/FatihMakes/Mark-LI) by **FatihMakes**
-> (Creative Commons BY-NC 4.0 — personal, non-commercial use). This repo is a
-> rebranded, cleaned-up fork.
+ADHITHIYA is a cinematic, voice-first assistant that hears you, talks back, sees
+your screen, and controls your computer — by voice. The AI brain runs on
+**OpenAI** models: GPT-4o mini for chat, Whisper for speech-to-text, OpenAI TTS
+for a natural voice, and gpt-image-1 for image generation — all behind one
+provider layer (`core/llm.py`), so swapping providers later is a one-line change.
 
 ---
 
@@ -43,7 +41,7 @@ Just double-click **`run_adhithiya.command`** in Finder. It sets up Python
 dependencies automatically on first run (one-time ~1–2 GB download), then
 launches ADHITHIYA. If macOS blocks it, right-click → **Open**.
 
-> Requirements: Python 3.11–3.13 (from python.org) · a microphone · a Gemini API key.
+> Requirements: Python 3.11–3.13 (from python.org) · a microphone · an OpenAI API key.
 
 ### Option B — build a real standalone `.app`
 
@@ -64,8 +62,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-On first launch, enter your **Gemini API key** (free from
-[aistudio.google.com](https://aistudio.google.com)). When macOS asks, allow
+On first launch, enter your **OpenAI API key** (from
+[platform.openai.com](https://platform.openai.com)). When macOS asks, allow
 **microphone, camera, Accessibility and Screen Recording** in
 *System Settings → Privacy & Security*.
 
@@ -103,13 +101,13 @@ committed**). Useful options:
 
 ```json
 {
-  "gemini_api_key": "AIza…",
+  "openai_api_key": "sk-…",
   "assistant_name": "ADHITHIYA",
   "user_name": "",
-  "fast_response": true,
+  "chat_model": "gpt-4o-mini",
+  "tts_voice": "alloy",
+  "image_model": "gpt-image-1",
   "morning_brief_enabled": true,
-  "live_model": "models/gemini-2.5-flash-native-audio-preview-12-2025",
-  "voice_name": "Charon",
   "audio_prebuffer_ms": 80,
   "audio_blocksize": 512,
   "ui_color": "#00d4ff"
@@ -119,9 +117,9 @@ committed**). Useful options:
 | Key | What it does |
 | --- | --- |
 | `assistant_name` / `user_name` | Change what it calls itself / you |
-| `fast_response` | `true` = fastest responses; `false` = enable emotional tone + background-chatter awareness |
-| `live_model` | The Gemini Live model. **If Google retires a preview model, change it here** — no code edits needed |
-| `voice_name` | Gemini voice (e.g. `Charon`, `Fenrir`, `Kore`, `Leda`, `Orus`, `Puck`, `Zephyr`) |
+| `chat_model` | Chat model (default `gpt-4o-mini`; any OpenAI chat model works) |
+| `tts_voice` | Speaking voice — `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`, `coral`, `sage`, `ash`, `ballad` (default `alloy`) |
+| `image_model` | Image model (default `gpt-image-1`; falls back to `dall-e-3`) |
 | `audio_prebuffer_ms` | Jitter cushion before playback starts each turn (`0`–`1000`, default `80`). Higher = smoother but slightly slower first syllable; lower = snappier but more sensitive to network jitter |
 | `audio_blocksize` | Output buffer size in frames (`0` = let the OS choose, default `512`). Smaller = lower latency |
 | `ui_color` | UI accent colour (also changeable from the ⚙ menu) |
@@ -149,7 +147,7 @@ shutting down.
 ## 🗂️ Project structure
 
 ```
-├── main.py                  # Core loop — Gemini Live session, audio I/O, tool dispatch
+├── main.py                  # Core loop — OpenAI voice pipeline (STT → chat/tools → TTS), audio I/O, tool dispatch
 ├── ui.py                    # PyQt6 HUD — orb/face, waveform, log, plugin manager, camera
 ├── core/                    # prompt, plugin loader, voice gate, agent, self-recovery
 ├── actions/                 # 20+ skills (search, files, vision, reminders, weather…)
@@ -174,4 +172,3 @@ shows as *BROKEN* in the Plugin Manager.
 
 Personal and non-commercial use only.
 Licensed under [Creative Commons BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
-Original project: **Mark-LI** by **FatihMakes**.

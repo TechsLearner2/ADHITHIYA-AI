@@ -5,8 +5,8 @@ The user describes a spreadsheet in plain speech — "make me a table of my
 five expenses this week with a total", "bana 12 aylık satış tablosu ve bir
 grafik oluştur" — and ADHITHIYA produces a genuine .xlsx on the Desktop:
 bold headers, typed cells, an optional SUM total row, and an optional
-chart. Gemini turns the request into a structured spec; openpyxl builds
-the file. That last step is the whole point — Gemini can describe a table
+chart. The LLM turns the request into a structured spec; openpyxl builds
+the file. That last step is the whole point — the LLM can describe a table
 but it cannot hand you a working .xlsx; this plugin does.
 
 Cross-OS (saves to the user's Desktop, falling back to home). Needs
@@ -47,9 +47,6 @@ PLUGIN = {
     },
 }
 
-_MODEL = "gemini-flash-latest"
-
-
 # ── output location ───────────────────────────────────────────────────────────
 
 def _output_dir() -> Path:
@@ -62,15 +59,13 @@ def _safe_name(name: str) -> str:
     return name[:60]
 
 
-# ── Gemini: request → structured spec ────────────────────────────────────────
+# ── LLM: request → structured spec ───────────────────────────────────────────
 
 def _build_spec(request: str) -> dict:
-    from memory.config_manager import get_gemini_key
-    api_key = get_gemini_key()
-    if not api_key:
+    from core.llm import get_api_key, generate_content
+    if not get_api_key():
         raise RuntimeError("no API key configured")
 
-    from google import genai
     prompt = (
         "Convert the user's request into a spreadsheet specification.\n"
         f'USER REQUEST: "{request}"\n'
@@ -87,8 +82,7 @@ def _build_spec(request: str) -> dict:
         '"value_col":int,"title":string}.\n'
         "Keep it under 100 rows."
     )
-    client = genai.Client(api_key=api_key)
-    resp = client.models.generate_content(model=_MODEL, contents=prompt)
+    resp = generate_content(prompt)
     text = (resp.text or "").strip()
     if "{" in text and "}" in text:
         text = text[text.find("{"): text.rfind("}") + 1]

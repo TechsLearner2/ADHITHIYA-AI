@@ -1,6 +1,6 @@
 import subprocess
 
-# 1. METADATA SCHEMA: Controls when Gemini activates this tool
+# 1. METADATA SCHEMA: Controls when the LLM activates this tool
 PLUGIN = {
     "name": "mac_system_control",
     "description": "Controls macOS system settings such as volume level or opening specific system settings panes.",
@@ -29,7 +29,7 @@ PLUGIN = {
 # 2. EXECUTION LOGIC: Runs when the assistant calls the tool
 def run(action, volume_level=None, setting_pane=None):
     """
-    Executes native macOS Monterey commands based on Gemini's parsed intent.
+    Executes native macOS Monterey commands based on the LLM's parsed intent.
     """
     try:
         if action == "set_volume":

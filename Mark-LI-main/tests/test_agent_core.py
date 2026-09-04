@@ -1,7 +1,10 @@
-"""Tests for the agent core (task_runner) + web_fetch + image_generate. No network."""
+"""Tests for the agent core (task_runner) + web_fetch + image_generate. No network.
+
+The agent loop talks to the model through ``core.llm.chat``, so we stub that
+single function instead of faking a vendor client.
+"""
 
 import sys
-import types as pytypes
 from pathlib import Path
 
 import pytest
@@ -12,88 +15,27 @@ from core import task_runner
 from core.project_agent import CommandPolicy
 
 
-# ── fake google.genai for the loop tests ─────────────────────────────────────
+# ── fake core.llm.chat for the loop tests ────────────────────────────────────
 
-class _FC:
-    def __init__(self, name, args=None):
-        self.name = name
-        self.args = args or {}
+def _tool_call(name, args, cid="call_1"):
+    return {"id": cid, "name": name, "arguments": args}
 
 
-class _Part:
-    def __init__(self, fc=None, text=None):
-        self.function_call = fc
-        self.text = text
-
-
-class _Content:
-    def __init__(self, parts=None):
-        self.parts = parts or []
-
-
-class _Candidate:
-    def __init__(self, parts):
-        self.content = _Content(parts)
-
-
-class _Resp:
-    def __init__(self, candidates):
-        self.candidates = candidates
-
-
-class _Models:
-    def __init__(self, script):
-        self._script = script
-
-    def generate_content(self, model, contents, config=None):
-        return self._script.pop(0)
-
-
-class _Client:
-    def __init__(self, script):
-        self.models = _Models(script)
-
-
-def _install_fake_genai(monkeypatch, script):
-    fake_types = pytypes.ModuleType("google.genai.types")
-    fake_types.Tool = lambda function_declarations: object()
-    fake_types.GenerateContentConfig = lambda **kw: object()
-    fake_types.Content = lambda role, parts: _Content(parts)
-    fake_types.Part = pytypes.SimpleNamespace()
-
-    def _from_text(text):
-        return _Part(text=text)
-
-    def _from_function_call(name, args):
-        return _Part(fc=_FC(name, args))
-
-    def _from_function_response(name, response):
-        return _Part(fc=_FC(name))
-
-    fake_types.Part.from_text = staticmethod(_from_text)
-    fake_types.Part.from_function_call = staticmethod(_from_function_call)
-    fake_types.Part.from_function_response = staticmethod(_from_function_response)
-
-    fake_genai = pytypes.ModuleType("google.genai")
-    fake_genai.Client = lambda api_key: _Client(script)
-    fake_genai.types = fake_types
-
-    fake_google = pytypes.ModuleType("google")
-    fake_google.__path__ = []
-    fake_google.genai = fake_genai
-
-    monkeypatch.setitem(sys.modules, "google", fake_google)
-    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
-    monkeypatch.setitem(sys.modules, "google.genai.types", fake_types)
-    return fake_genai
-
-
-def _resp_with_fc(name, args):
-    return _Resp([_Candidate([_Part(fc=_FC(name, args))])])
+def _resp_with_fc(name, args, cid="call_1"):
+    return {"text": "", "tool_calls": [_tool_call(name, args, cid)]}
 
 
 def _resp_with_text(text):
-    return _Resp([_Candidate([_Part(text=text)])])
+    return {"text": text, "tool_calls": []}
+
+
+def _install_fake_chat(monkeypatch, script):
+    """Replace core.llm.chat with a scripted responder (pops one reply per call)."""
+    def _fake_chat(messages, tools=None, max_tokens=None, temp=None):
+        assert script, "unexpected extra chat() call"
+        return script.pop(0)
+
+    monkeypatch.setattr("core.llm.chat", _fake_chat)
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
@@ -105,7 +47,7 @@ def test_loop_tool_then_final(monkeypatch):
                         lambda name, args, player: calls.append(name) or ("search-result" if name == "web_search" else "done"))
     script = [_resp_with_fc("web_search", {"query": "x"}),
               _resp_with_fc("final_answer", {"text": "Finished."})]
-    _install_fake_genai(monkeypatch, script)
+    _install_fake_chat(monkeypatch, script)
 
     out = task_runner.run_task("test goal", api_key="k")
     assert out == "Finished."
@@ -114,7 +56,7 @@ def test_loop_tool_then_final(monkeypatch):
 
 def test_loop_text_only(monkeypatch):
     monkeypatch.setattr(task_runner, "_declarations", lambda: [])
-    _install_fake_genai(monkeypatch, [_resp_with_text("All done here.")])
+    _install_fake_chat(monkeypatch, [_resp_with_text("All done here.")])
     assert task_runner.run_task("g", api_key="k") == "All done here."
 
 
@@ -122,9 +64,15 @@ def test_loop_max_steps(monkeypatch):
     monkeypatch.setattr(task_runner, "_declarations", lambda: [])
     monkeypatch.setattr(task_runner, "_dispatch", lambda n, a, p: "r")
     script = [_resp_with_fc("web_search", {})] * 5
-    _install_fake_genai(monkeypatch, script)
+    _install_fake_chat(monkeypatch, script)
     out = task_runner.run_task("g", api_key="k", max_steps=2)
     assert "Ran 2 steps" in out
+
+
+def test_run_task_requires_key(monkeypatch):
+    monkeypatch.setattr("core.llm.get_api_key", lambda: "")
+    out = task_runner.run_task("g")
+    assert "API key" in out
 
 
 def test_command_policy_safety():

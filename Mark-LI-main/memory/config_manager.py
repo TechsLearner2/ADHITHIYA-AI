@@ -39,7 +39,7 @@ def ensure_config_dir() -> None:
 def config_exists() -> bool:
     return CONFIG_FILE.exists()
 
-def save_api_keys(gemini_api_key: str) -> None:
+def save_api_keys(openai_api_key: str) -> None:
     ensure_config_dir()
 
     data: dict = {}
@@ -49,7 +49,7 @@ def save_api_keys(gemini_api_key: str) -> None:
         except Exception:
             data = {}
 
-    data["gemini_api_key"] = gemini_api_key.strip()
+    data["openai_api_key"] = openai_api_key.strip()
 
     CONFIG_FILE.write_text(
         json.dumps(data, indent=2),
@@ -65,11 +65,11 @@ def load_api_keys() -> dict:
         print(f"❌ Failed to load api_keys.json: {e}")
         return {}
 
-def get_gemini_key() -> str | None:
-    return load_api_keys().get("gemini_api_key")
+def get_openai_key() -> str | None:
+    return load_api_keys().get("openai_api_key")
 
 def is_configured() -> bool:
-    key = get_gemini_key()
+    key = get_openai_key()
     return bool(key and len(key) > 15)
 
 

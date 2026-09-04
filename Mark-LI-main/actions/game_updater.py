@@ -202,7 +202,7 @@ def _click_first_profile_by_screenshot() -> bool:
         time.sleep(1.5)
         win = _get_steam_window_rect()
         if not win:
-            print("[GameUpdater] ⚠️ Steam penceresi bulunamadı")
+            print("[GameUpdater] ⚠️ Steam window not found")
             return False
 
         wx, wy, ww, wh = win
@@ -220,7 +220,7 @@ def _click_first_profile_by_screenshot() -> bool:
         colorful = (max_c > 60) & ((max_c - min_c) > 40)
 
         if not colorful.any():
-            print("[GameUpdater] ⚠️ Avatar rengi bulunamadı — tahminle tıklanıyor")
+            print("[GameUpdater] ⚠️ Avatar colour not found — clicking by estimate")
             pyautogui.click(wx + ww // 2 - ww // 6, wy + wh // 2)
             return True
 
@@ -235,20 +235,20 @@ def _click_first_profile_by_screenshot() -> bool:
 
         abs_x = wx + search_x1 + int(block_cols.mean())
         abs_y = wy + search_y1 + int(rows.mean())
-        print(f"[GameUpdater] 🎯 Profil avatarı ({abs_x}, {abs_y}) — tıklanıyor")
+        print(f"[GameUpdater] 🎯 Profile avatar ({abs_x}, {abs_y}) — clicking")
         pyautogui.click(abs_x, abs_y)
         return True
 
     except ImportError as e:
-        print(f"[GameUpdater] ⚠️ Eksik kütüphane: {e}")
+        print(f"[GameUpdater] ⚠️ Missing library: {e}")
         return False
     except Exception as e:
-        print(f"[GameUpdater] ⚠️ Profil tespiti başarısız: {e}")
+        print(f"[GameUpdater] ⚠️ Profile detection failed: {e}")
         return False
 
 
 def _handle_steam_profile_selection() -> bool:
-    print("[GameUpdater] 🔍 Profil seçim dialogu kontrol ediliyor...")
+    print("[GameUpdater] 🔍 Checking for the profile selection dialog...")
     win = _get_steam_window_rect()
     if not win:
         return False
@@ -266,14 +266,14 @@ def _handle_steam_profile_selection() -> bool:
             (top_region[:,:,2] > 200)
         ))
         if not is_small and white_pixels <= 100:
-            print("[GameUpdater] ℹ️ Profil dialogu yok — Steam zaten giriş yapmış")
+            print("[GameUpdater] ℹ️ No profile dialog — Steam is already signed in")
             return False
     except ImportError:
         pass
     except Exception:
         pass
 
-    print("[GameUpdater] 👤 Profil seçimi tespit edildi — ilk profile tıklanıyor")
+    print("[GameUpdater] 👤 Profile selection detected — clicking the first profile")
     return _click_first_profile_by_screenshot()
 
 def _find_best_drive() -> dict | None:
@@ -298,7 +298,7 @@ def _select_drive_in_dialog(dialog, drive_letter: str) -> bool:
             for ctrl in dialog.descendants(control_type=control_type):
                 if target in ctrl.window_text().upper():
                     ctrl.click_input()
-                    print(f"[GameUpdater] ✅ Sürücü seçildi ({control_type}): {ctrl.window_text()}")
+                    print(f"[GameUpdater] ✅ Drive selected ({control_type}): {ctrl.window_text()}")
                     return True
         except Exception:
             continue
@@ -390,7 +390,7 @@ def _handle_install_dialog(game_name: str) -> str:
 
     drive_letter = best_drive["letter"]
     drive_label  = f"{drive_letter}:"
-    print(f"[GameUpdater] 🏆 Hedef sürücü: {drive_label} ({best_drive['free_gb']:.1f} GB boş)")
+    print(f"[GameUpdater] 🏆 Target drive: {drive_label} ({best_drive['free_gb']:.1f} GB free)")
 
     try:
         from pywinauto import Application, findwindows
@@ -423,7 +423,7 @@ def _handle_install_dialog(game_name: str) -> str:
                 break
 
         if not dialog:
-            raise RuntimeError("Dialog bulunamadı")
+            raise RuntimeError("Dialog not found")
 
         dialog.set_focus()
         time.sleep(0.4)
@@ -440,7 +440,7 @@ def _handle_install_dialog(game_name: str) -> str:
     except ImportError:
         return _handle_install_dialog_pyautogui(game_name, best_drive)
     except Exception as e:
-        print(f"[GameUpdater] ⚠️ pywinauto başarısız: {e}")
+        print(f"[GameUpdater] ⚠️ pywinauto failed: {e}")
         return _handle_install_dialog_pyautogui(game_name, best_drive)
 
 def _ensure_steam_running(steam_path: Path) -> bool:
@@ -449,10 +449,10 @@ def _ensure_steam_running(steam_path: Path) -> bool:
 
     exe = _steam_exe(steam_path)
     if not exe.exists():
-        print(f"[GameUpdater] ❌ Steam bulunamadı: {exe}")
+        print(f"[GameUpdater] ❌ Steam not found: {exe}")
         return False
 
-    print("[GameUpdater] 🚀 Steam başlatılıyor...")
+    print("[GameUpdater] 🚀 Starting Steam...")
     if is_mac():
         subprocess.Popen(["open", "-a", "Steam"])
     else:
@@ -461,14 +461,14 @@ def _ensure_steam_running(steam_path: Path) -> bool:
     for _ in range(20):
         time.sleep(1)
         if _is_steam_running():
-            print("[GameUpdater] ✅ Steam çalışıyor")
+            print("[GameUpdater] ✅ Steam running")
             time.sleep(4)
             if is_windows():
                 _handle_steam_profile_selection()
                 time.sleep(2)
             return True
 
-    print("[GameUpdater] ⚠️ Steam başlatılamadı")
+    print("[GameUpdater] ⚠️ Steam could not be started")
     return False
 
 def _search_steam_appid(game_name: str) -> tuple[str | None, str | None]:
@@ -483,12 +483,12 @@ def _search_steam_appid(game_name: str) -> tuple[str | None, str | None]:
 
     if name_lower in _KNOWN_APPIDS:
         app_id, canonical = _KNOWN_APPIDS[name_lower]
-        print(f"[GameUpdater] 📖 Bilinen: {canonical} ({app_id})")
+        print(f"[GameUpdater] 📖 Known: {canonical} ({app_id})")
         return app_id, canonical
 
     for key, (app_id, canonical) in _KNOWN_APPIDS.items():
         if name_lower in key or key in name_lower:
-            print(f"[GameUpdater] 📖 Kısmi eşleşme: {canonical} ({app_id})")
+            print(f"[GameUpdater] 📖 Partial match: {canonical} ({app_id})")
             return app_id, canonical
 
     try:
@@ -503,7 +503,7 @@ def _search_steam_appid(game_name: str) -> tuple[str | None, str | None]:
             print(f"[GameUpdater] 🌐 Store API: {best['name']} ({best['id']})")
             return str(best["id"]), best["name"]
     except Exception as e:
-        print(f"[GameUpdater] ⚠️ AppID arama başarısız: {e}")
+        print(f"[GameUpdater] ⚠️ AppID search failed: {e}")
 
     return None, None
 
@@ -596,7 +596,7 @@ def _install_steam_game(steam_path: Path, game_name: str = None,
                     f"Try providing the AppID directly.")
         app_id    = found_id
         game_name = found_name or game_name
-        print(f"[GameUpdater] 🔍 Kuruluyor: {game_name} (AppID: {app_id})")
+        print(f"[GameUpdater] 🔍 Installing: {game_name} (AppID: {app_id})")
 
     try:
         _launch_steam_url(exe, f"steam://install/{app_id}")
@@ -821,13 +821,13 @@ def _schedule_windows(hour: int, minute: int) -> str:
 def _schedule_mac(hour: int, minute: int) -> str:
     plist_dir   = Path.home() / "Library" / "LaunchAgents"
     plist_dir.mkdir(parents=True, exist_ok=True)
-    plist_path  = plist_dir / "com.jarvis.gameupdater.plist"
+    plist_path  = plist_dir / "com.adhithiya.gameupdater.plist"
     script_path = Path(__file__).resolve()
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-    <key>Label</key><string>com.jarvis.gameupdater</string>
+    <key>Label</key><string>com.adhithiya.gameupdater</string>
     <key>ProgramArguments</key>
     <array>
         <string>{sys.executable}</string>
@@ -881,7 +881,7 @@ def _cancel_scheduled_update() -> str:
         return ("Scheduled update cancelled."
                 if result.returncode == 0 else "No scheduled update found.")
     if is_mac():
-        plist_path = Path.home() / "Library" / "LaunchAgents" / "com.jarvis.gameupdater.plist"
+        plist_path = Path.home() / "Library" / "LaunchAgents" / "com.adhithiya.gameupdater.plist"
         if plist_path.exists():
             subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
             plist_path.unlink()
@@ -914,7 +914,7 @@ def _get_schedule_status() -> str:
         return "Game update is scheduled."
     if is_mac():
         plist_path = (Path.home() / "Library" / "LaunchAgents"
-                      / "com.jarvis.gameupdater.plist")
+                      / "com.adhithiya.gameupdater.plist")
         return ("Game update is scheduled via launchd."
                 if plist_path.exists() else "No scheduled game update found.")
 

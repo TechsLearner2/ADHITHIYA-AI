@@ -1,7 +1,6 @@
 PyQt6
 sounddevice
-google-genai>=2.8.0
-google-generativeai
+openai>=1.40
 pillow
 requests
 beautifulsoup4

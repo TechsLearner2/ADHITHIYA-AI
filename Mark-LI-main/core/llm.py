@@ -1,0 +1,303 @@
+"""LLM provider layer — the single door to the AI brain.
+
+Every AI call in ADHITHIYA goes through here. The default backend is OpenAI
+(GPT-4o-mini chat, Whisper STT, OpenAI TTS, gpt-image-1). Switching providers
+later means changing *this one file* — nothing else in the codebase knows which
+provider is in use.
+
+Config (config/api_keys.json):
+    openai_api_key   — required
+    chat_model       — default "gpt-4o-mini"
+    tts_model        — default "gpt-4o-mini-tts" (falls back to "tts-1")
+    tts_voice        — default "alloy" (alloy | echo | fable | onyx | nova | shimmer | coral | sage | ash | ballad)
+    stt_model        — default "whisper-1"
+    image_model      — default "gpt-image-1" (falls back to "dall-e-3")
+    temperature      — optional, default 0.7
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+
+from memory.config_manager import load_api_keys
+
+# ── defaults ──────────────────────────────────────────────────────────────────
+
+DEFAULT_CHAT_MODEL   = "gpt-4o-mini"
+DEFAULT_TTS_MODEL    = "gpt-4o-mini-tts"
+DEFAULT_TTS_VOICE    = "alloy"
+DEFAULT_STT_MODEL    = "whisper-1"
+DEFAULT_IMAGE_MODEL  = "gpt-image-1"
+IMAGE_FALLBACK       = "dall-e-3"
+TTS_FALLBACK         = "tts-1"
+
+_CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}
+
+
+def _cfg():
+    try:
+        return load_api_keys()
+    except Exception:
+        return {}
+
+
+def get_api_key() -> str:
+    """The OpenAI key. Also accepts a legacy 'gemini_api_key' field during
+    migration so existing config files keep working until the user updates."""
+    data = _cfg()
+    key = str(data.get("openai_api_key") or data.get("gemini_api_key") or "").strip()
+    return key
+
+
+def model(name: str) -> str:
+    return str(_cfg().get(name, "") or "").strip()
+
+
+def chat_model() -> str:
+    return model("chat_model") or DEFAULT_CHAT_MODEL
+
+
+def tts_model() -> str:
+    return model("tts_model") or DEFAULT_TTS_MODEL
+
+
+def tts_voice() -> str:
+    return model("tts_voice") or DEFAULT_TTS_VOICE
+
+
+def stt_model() -> str:
+    return model("stt_model") or DEFAULT_STT_MODEL
+
+
+def image_model() -> str:
+    return model("image_model") or DEFAULT_IMAGE_MODEL
+
+
+def temperature() -> float:
+    try:
+        return float(_cfg().get("temperature", 0.7))
+    except (TypeError, ValueError):
+        return 0.7
+
+
+def _client():
+    from openai import OpenAI
+    return OpenAI(api_key=get_api_key(), max_retries=2, timeout=60.0)
+
+
+# ── chat ──────────────────────────────────────────────────────────────────────
+
+def chat(messages: list[dict], tools: list[dict] | None = None,
+         max_tokens: int | None = None, temp: float | None = None) -> dict:
+    """Send messages and return {"text": str, "tool_calls": [...]}.
+
+    messages: OpenAI chat format (role: system/user/assistant/tool).
+    tools:    OpenAI tool format (type:"function" ...).
+    """
+    client = _client()
+    kwargs: dict = {
+        "model": chat_model(),
+        "messages": messages,
+        "temperature": temperature() if temp is None else temp,
+    }
+    if tools:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = "auto"
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+
+    resp = client.chat.completions.create(**kwargs)
+    msg = resp.choices[0].message
+    tool_calls = []
+    for tc in (msg.tool_calls or []):
+        try:
+            args = json.loads(tc.function.arguments or "{}")
+        except (json.JSONDecodeError, TypeError):
+            args = {}
+        tool_calls.append({
+            "id": tc.id,
+            "name": tc.function.name,
+            "arguments": args,
+        })
+    return {"text": (msg.content or "").strip(), "tool_calls": tool_calls}
+
+
+def chat_with_image(prompt: str, image_bytes: bytes, mime: str = "image/png") -> str:
+    """Ask a vision-capable model about an image. Returns its text answer."""
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    content = [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+    ]
+    return chat([{"role": "user", "content": content}])["text"]
+
+
+def generate_content(contents):
+    """Compatibility helper mirroring the legacy ``generate_content(contents)``.
+
+    Accepts a str (text prompt) or a list mixing str prompts and image objects
+    (PIL Image, raw bytes, or an object with .data/.mime_type). Returns an
+    object with a ``.text`` attribute.
+    """
+    from types import SimpleNamespace
+
+    if isinstance(contents, str):
+        return SimpleNamespace(text=chat([{"role": "user", "content": contents}])["text"])
+
+    if isinstance(contents, (list, tuple)):
+        text_parts: list[str] = []
+        image: bytes | None = None
+        mime = "image/png"
+        for item in contents:
+            if isinstance(item, str):
+                text_parts.append(item)
+                continue
+            if image is None:
+                image, mime = _coerce_image(item)
+        prompt = "\n".join(p for p in text_parts if p.strip())
+        if image is not None:
+            return SimpleNamespace(text=chat_with_image(prompt or "Describe this image.", image, mime))
+        return SimpleNamespace(text=chat([{"role": "user", "content": prompt}])["text"])
+
+    raise TypeError("generate_content expects a str or a list")
+
+
+def _coerce_image(item) -> tuple[bytes, str]:
+    """Normalise an image object to (bytes, mime)."""
+    # object with .data / .mime_type (our compat Part)
+    if hasattr(item, "data") and hasattr(item, "mime_type"):
+        return bytes(item.data), str(item.mime_type or "image/png")
+    # dict form
+    if isinstance(item, dict):
+        if item.get("data"):
+            return bytes(item["data"]), str(item.get("mime_type") or "image/png")
+    # raw bytes
+    if isinstance(item, (bytes, bytearray)):
+        b = bytes(item)
+        mime = "image/jpeg" if b[:2] == b"\xff\xd8" else "image/png"
+        return b, mime
+    # PIL Image
+    if hasattr(item, "save"):
+        import io
+        buf = io.BytesIO()
+        try:
+            item.save(buf, format="PNG")
+        except Exception:
+            item.save(buf, format="JPEG")
+        return buf.getvalue(), "image/png"
+    raise TypeError(f"unsupported image object: {type(item)}")
+
+
+# ── speech-to-text ────────────────────────────────────────────────────────────
+
+def transcribe_wav(wav_bytes: bytes) -> str:
+    """Transcribe a WAV audio blob with Whisper. Returns text ('' on failure)."""
+    client = _client()
+    resp = client.audio.transcriptions.create(
+        model=stt_model(),
+        file=("audio.wav", wav_bytes, "audio/wav"),
+    )
+    return (resp.text or "").strip()
+
+
+# ── text-to-speech ────────────────────────────────────────────────────────────
+
+def tts_wav(text: str) -> bytes:
+    """Synthesise text as a WAV file (PCM). Raises on failure."""
+    client = _client()
+    try:
+        resp = client.audio.speech.create(
+            model=tts_model(),
+            voice=tts_voice(),
+            input=text,
+            response_format="wav",
+        )
+    except Exception:
+        resp = client.audio.speech.create(
+            model=TTS_FALLBACK,
+            voice=tts_voice(),
+            input=text,
+            response_format="wav",
+        )
+    data = getattr(resp, "content", None)
+    if data is None:
+        data = resp.read()
+    return bytes(data)
+
+
+# ── image generation ──────────────────────────────────────────────────────────
+
+def generate_image(prompt: str) -> bytes:
+    """Generate an image and return its raw bytes (PNG). Raises on failure."""
+    client = _client()
+    last_error = None
+    for name in (image_model(), IMAGE_FALLBACK):
+        try:
+            resp = client.images.generate(model=name, prompt=prompt,
+                                          size="1024x1024", n=1)
+            item = resp.data[0] if resp.data else None
+            if item is None:
+                last_error = "no image returned"
+                continue
+            if getattr(item, "b64_json", None):
+                return base64.b64decode(item.b64_json)
+            if getattr(item, "url", None):
+                import requests
+                return requests.get(item.url, timeout=60).content
+            last_error = "image data missing"
+        except Exception as e:  # noqa: BLE001
+            last_error = str(e)
+    raise RuntimeError(last_error or "image generation failed")
+
+
+# ── tool-schema conversion (legacy declarations → OpenAI tools) ───────────────
+
+_TYPE_MAP = {
+    "STRING": "string",
+    "INTEGER": "integer",
+    "NUMBER": "number",
+    "BOOLEAN": "boolean",
+    "OBJECT": "object",
+    "ARRAY": "array",
+}
+
+
+def _convert_schema(schema: dict) -> dict:
+    out = {}
+    t = schema.get("type")
+    if t:
+        mapped = _TYPE_MAP.get(str(t).upper(), str(t).lower())
+        out["type"] = mapped
+    desc = schema.get("description")
+    if desc:
+        out["description"] = str(desc)
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        out["properties"] = {k: _convert_schema(v) for k, v in props.items()}
+    items = schema.get("items")
+    if isinstance(items, dict):
+        out["items"] = _convert_schema(items)
+    req = schema.get("required")
+    if isinstance(req, list):
+        out["required"] = req
+    enums = schema.get("enum")
+    if isinstance(enums, list):
+        out["enum"] = enums
+    return out
+
+
+def to_openai_tools(declarations: list[dict]) -> list[dict]:
+    """Convert legacy-style function declarations to OpenAI tool objects."""
+    tools = []
+    for decl in declarations:
+        params = decl.get("parameters") or {"type": "OBJECT", "properties": {}}
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": decl.get("name", ""),
+                "description": decl.get("description", ""),
+                "parameters": _convert_schema(params),
+            },
+        })
+    return tools

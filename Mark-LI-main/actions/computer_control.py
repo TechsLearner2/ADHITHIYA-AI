@@ -55,7 +55,8 @@ def _get_os() -> str:
 
 
 def _get_api_key() -> str:
-    return _load_config().get("gemini_api_key", "")
+    from core.llm import get_api_key
+    return get_api_key()
 
 _SAFE_SCREENSHOT_ROOTS = (
     Path.home(),
@@ -317,8 +318,7 @@ def _screen_find(description: str) -> tuple[int, int] | None:
         return None
 
     try:
-        from google import genai
-        from google.genai import types as gtypes
+        from core.llm import generate_content
 
         _require_pyautogui()
         w, h  = pyautogui.size()
@@ -327,7 +327,6 @@ def _screen_find(description: str) -> tuple[int, int] | None:
         img.save(buf, format="PNG")
         image_bytes = buf.getvalue()
 
-        client = genai.Client(api_key=api_key)
         prompt = (
             f"This is a screenshot of a {w}×{h} pixel screen. "
             f"Locate the UI element described as: '{description}'. "
@@ -335,13 +334,7 @@ def _screen_find(description: str) -> tuple[int, int] | None:
             f"If the element is not visible, reply: NOT_FOUND"
         )
 
-        response = client.models.generate_content(
-            model="gemini-flash-lite-latest",
-            contents=[
-                gtypes.Part.from_bytes(data=image_bytes, mime_type="image/png"),
-                prompt,
-            ],
-        )
+        response = generate_content([image_bytes, prompt])
 
         text = (response.text or "").strip()
         if "NOT_FOUND" in text.upper():

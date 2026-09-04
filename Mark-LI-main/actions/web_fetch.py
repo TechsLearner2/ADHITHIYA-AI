@@ -45,7 +45,8 @@ class _TextExtractor(HTMLParser):
 
 def _api_key() -> str:
     try:
-        return str(load_api_keys().get("gemini_api_key", "") or "")
+        from core.llm import get_api_key
+        return str(get_api_key() or "")
     except Exception:
         return ""
 
@@ -64,15 +65,13 @@ def _fetch(url: str) -> str:
 
 
 def _distill(text: str, url: str, api_key: str) -> str:
-    from google import genai
-    client = genai.Client(api_key=api_key)
+    from core.llm import chat
     prompt = (
         f"Summarise the main points of this web page ({url}) in 4-6 short bullet "
         f"points plus a one-line takeaway. Keep all facts accurate to the text; "
         f"do not invent. Text:\n\n{text[:_MAX_RAW]}"
     )
-    resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
-    return (resp.text or "").strip()
+    return chat([{"role": "user", "content": prompt}])["text"]
 
 
 def web_fetch(parameters: dict, response=None, player=None, session_memory=None) -> str:

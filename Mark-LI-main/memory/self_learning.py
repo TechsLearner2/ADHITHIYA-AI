@@ -1,7 +1,7 @@
 """Self-learning: research failed commands and remember how to fix them.
 
 When a tool or command fails, ADHITHIYA searches the web for a solution,
-distills the answer into short guidance with Gemini, stores it locally, and
+distills the answer into short guidance with the LLM, stores it locally, and
 feeds it back into the next session — so the same command succeeds later and
 the knowledge is never lost.
 
@@ -9,7 +9,7 @@ Safety model
 ------------
 This learns *knowledge* (text guidance) only. It never:
   * executes code or commands found online,
-  * calls anything beyond the search provider and the configured Gemini client,
+  * calls anything beyond the search provider and the configured LLM client,
   * stores secrets or raw credentials (errors are redacted),
   * talks over the user — the guidance is injected for the next response.
 
@@ -80,10 +80,9 @@ def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
 
 
 def _distill(tool_name: str, error: str, snippets: list[dict], api_key: str) -> str:
-    """Turn search snippets into short, actionable guidance via Gemini."""
+    """Turn search snippets into short, actionable guidance via the LLM."""
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
+        from core.llm import chat
         context = "\n".join(
             f"- {r.get('title', '')}: {r.get('body', '')[:300]}"
             for r in snippets[:6]
@@ -97,10 +96,7 @@ def _distill(tool_name: str, error: str, snippets: list[dict], api_key: str) -> 
             "apology. If the search results are irrelevant, answer from your own "
             "knowledge."
         )
-        resp = client.models.generate_content(
-            model="gemini-flash-latest", contents=prompt
-        )
-        return (resp.text or "").strip()
+        return chat([{"role": "user", "content": prompt}])["text"]
     except Exception as exc:  # noqa: BLE001 - learning must never crash the app
         print(f"[Learn] Distill failed: {exc}")
         return ""
@@ -120,7 +116,8 @@ def learn_from_failure(
         return ""
     if api_key is None:
         try:
-            api_key = load_api_keys().get("gemini_api_key", "")
+            from core.llm import get_api_key
+            api_key = get_api_key()
         except Exception:
             api_key = ""
     if not api_key:

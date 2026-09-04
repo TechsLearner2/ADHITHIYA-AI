@@ -40,9 +40,7 @@ from datetime import datetime
 from pathlib import Path
 
 import sounddevice as sd
-from google import genai
-from google.genai import types
-from ui import JarvisUI
+from ui import AdhithiyaUI
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
     save_session_summary, pop_last_session,
@@ -120,30 +118,34 @@ def _plugin_failure_is_recoverable(name: str, args: dict, result: object) -> boo
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = get_data_dir() / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
-DEFAULT_LIVE_MODEL  = "models/gemini-2.5-flash-native-audio-preview-12-2025"
-DEFAULT_VOICE_NAME  = "Charon"
 CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
 AUDIO_INPUT_QUEUE_LIMIT = 40
-AUDIO_OUTPUT_QUEUE_LIMIT = 40
 OUTPUT_BLOCKSIZE      = 512      # explicit small output buffer (~21 ms @ 24 kHz)
 DEFAULT_PREBUFFER_MS  = 80       # jitter cushion before playback starts each turn
 MAX_BATCH_BYTES       = 4800     # ~100 ms @ 24 kHz / 16-bit mono per write
 
 def _get_api_key() -> str:
-    try:
-        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)["gemini_api_key"]
-    except FileNotFoundError:
+    from core.llm import get_api_key
+    key = get_api_key()
+    if not key:
         raise RuntimeError(
-            "config/api_keys.json not found — run the app once and enter your Gemini API key."
+            "config/api_keys.json is missing the 'openai_api_key' field — "
+            "run the app once and enter your OpenAI API key."
         )
-    except KeyError:
-        raise RuntimeError(
-            "config/api_keys.json is missing the 'gemini_api_key' field."
-        )
+    return key
+
+
+class _FR:
+    """Tool-result carrier passed back to _execute_tool as `fr.response`."""
+    __slots__ = ("id", "name", "response")
+    def __init__(self, id, name, response):
+        self.id = id
+        self.name = name
+        self.response = response
+
 
 
 def _load_system_prompt() -> str:
@@ -730,7 +732,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "image_generate",
         "description": (
-            "Generate an image from a text prompt with Gemini Imagen and save it "
+            "Generate an image from a text prompt with OpenAI and save it "
             "to the Pictures/ADHITHIYA folder. Use when the user asks to create, "
             "draw, or imagine an image, wallpaper, or concept art."
         ),
@@ -744,14 +746,12 @@ TOOL_DECLARATIONS = [
     },
 ]
 
-class JarvisLive:
+class AdhithiyaAssistant:
 
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: AdhithiyaUI):
         self.ui             = ui
         self._asst_name     = DEFAULT_ASSISTANT_NAME   # updated each session from config
-        self.session              = None
         self.audio_in_queue       = None
-        self.out_queue            = None
         self._loop                = None
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
@@ -802,12 +802,9 @@ class JarvisLive:
                                   self.ui.agent_progress(msg)),
         )
 
-        self._enhanced_live = True  # affective dialog + proactive audio; auto-disabled if the server rejects them
-        self._live_model   = DEFAULT_LIVE_MODEL   # overridden from config in _build_config()
-        self._voice_name   = DEFAULT_VOICE_NAME
-        self._prebuffer_ms    = DEFAULT_PREBUFFER_MS   # overridden from config in _build_config()
+        self._prebuffer_ms    = DEFAULT_PREBUFFER_MS   # overridden from config in _build_system_prompt()
         self._output_blocksize = OUTPUT_BLOCKSIZE
-        self._owner_name      = ""   # resolved in _build_config() (config → memory fallback)
+        self._owner_name      = ""   # resolved in _build_system_prompt() (config → memory fallback)
         # Self-learning: dedup + cooldown so a single problem is researched once
         # per session instead of spamming searches in a retry loop.
         self._learned_this_session: set[str] = set()
@@ -823,31 +820,9 @@ class JarvisLive:
         self.ui.request_say = self.plugin_say   # plugins: mid-task speech channel
 
     def plugin_say(self, instruction: str) -> None:
-        """
-        Thread-safe speech channel for plugins: lets a plugin ask ADHITHIYA to
-        say something short WHILE its run() is still executing (plugins block
-        their executor thread, so they can't speak through the tool response
-        until they finish). The instruction is injected into the Live session
-        exactly like a proactive check-in; Gemini phrases it naturally in the
-        user's language. Silently a no-op when no session is connected.
-        """
-        loop = getattr(self, "_loop", None)
-        if not loop or not self.session:
-            return
-
-        async def _say():
-            try:
-                await self.session.send_client_content(
-                    turns={"parts": [{"text": instruction}]},
-                    turn_complete=True,
-                )
-            except Exception as e:
-                print(f"[PluginSay] {e}")
-
-        try:
-            asyncio.run_coroutine_threadsafe(_say(), loop)
-        except Exception as e:
-            print(f"[PluginSay] {e}")
+        """Thread-safe speech channel for plugins: speak a short line while the
+        plugin's run() is still executing."""
+        self.speak(instruction)
 
     def _make_remote_key(self):
         """Called from Qt main thread when user presses Remote Control."""
@@ -898,32 +873,18 @@ class JarvisLive:
                     self.ui.write_log(f"LEARN: nothing usable found for '{name}'.")
                     return
                 self.ui.write_log(f"LEARN: fix remembered for '{name}'.")
-                if not self.session:
-                    return
-                try:
-                    await self.session.send_client_content(
-                        turns={"parts": [{
-                            "text": (
-                                f"[LEARNED] I researched the failed command "
-                                f"'{name}' and worked out how to do it correctly. "
-                                f"Guidance:\n{guidance[:800]}\n\n"
-                                "Briefly tell the user you found the solution, "
-                                "then offer to try again now that you know how."
-                            )
-                        }]},
-                        turn_complete=True,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    print(f"[Learn] inject error: {exc}")
+                self.speak(
+                    f"I worked out how to do '{name}' correctly and I'll remember it."
+                )
 
             asyncio.run_coroutine_threadsafe(_do(), loop)
         except Exception:  # noqa: BLE001 - learning is best-effort
             pass
 
     def _on_text_command(self, text: str):
-        if not self._loop or not self.session:
+        if not self._loop:
             return
-        # Keep normal text routed through Gemini. Only an explicit /agent
+        # Normal text goes through the OpenAI chat turn. Only an explicit /agent
         # command is handled locally, so existing chat behavior is unchanged.
         stripped = text.strip()
         lowered = stripped.lower()
@@ -942,21 +903,18 @@ class JarvisLive:
                 result = await asyncio.to_thread(self._project_agent.handle, params)
                 self.ui.write_log(f"[Agent] {result.as_text()}")
                 self.ui.show_agent_result(result)
-                if self.session:
-                    await self.session.send_client_content(
-                        turns={"parts": [{"text": f"[PROJECT_AGENT_RESULT] {result.as_text()}"}]},
-                        turn_complete=True,
-                    )
+                self.speak(result.as_text())
 
             asyncio.run_coroutine_threadsafe(_run_local_agent(), self._loop)
             return
-        asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"parts": [{"text": text}]},
-                turn_complete=True
-            ),
-            self._loop
-        )
+        async def _do():
+            try:
+                answer = await self._chat_turn(stripped)
+            except Exception as e:
+                answer = f"Something went wrong: {e}"
+            if answer:
+                await self._speak_text(answer)
+        asyncio.run_coroutine_threadsafe(_do(), self._loop)
 
     def _approve_pending_agent(self) -> None:
         """Run the exact pending project request from the UI approval button."""
@@ -966,11 +924,7 @@ class JarvisLive:
             result = await asyncio.to_thread(self._project_agent.approve_pending)
             self.ui.show_agent_result(result)
             self.ui.write_log(f"[Agent] {result.as_text()}")
-            if self.session:
-                await self.session.send_client_content(
-                    turns={"parts": [{"text": f"[PROJECT_AGENT_RESULT] {result.as_text()}"}]},
-                    turn_complete=True,
-                )
+            self.speak(result.as_text())
         asyncio.run_coroutine_threadsafe(_approve(), self._loop)
 
     def _reject_pending_agent(self) -> None:
@@ -1011,22 +965,27 @@ class JarvisLive:
         self.ui.write_log("SYS: Interrupted — listening...")
 
     def speak(self, text: str):
-        if not self._loop or not self.session:
+        """Queue text to be spoken aloud via TTS (thread-safe, non-blocking)."""
+        loop = getattr(self, "_loop", None)
+        if not loop or not (text or "").strip():
             return
-        asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"parts": [{"text": text}]},
-                turn_complete=True
-            ),
-            self._loop
-        )
+
+        async def _put():
+            try:
+                self._speak_queue.put_nowait(text)
+            except asyncio.QueueFull:
+                pass
+        try:
+            asyncio.run_coroutine_threadsafe(_put(), loop)
+        except Exception:
+            pass
 
     def speak_error(self, tool_name: str, error: str):
         short = str(error)[:120]
         self.ui.write_log(f"ERR: {tool_name} — {short}")
         self.speak(f"Sir, {tool_name} encountered an error. {short}")
 
-    def _build_config(self) -> types.LiveConnectConfig:
+    def _build_system_prompt(self) -> str:
         from datetime import datetime
 
         # Load customization from config
@@ -1034,9 +993,6 @@ class JarvisLive:
             _cfg = json.loads(open(API_CONFIG_PATH, encoding="utf-8").read())
             self._asst_name = (_cfg.get("assistant_name") or DEFAULT_ASSISTANT_NAME).strip()
             _user_name = (_cfg.get("user_name") or "").strip()
-            fast_response = bool(_cfg.get("fast_response", True))
-            self._live_model = str(_cfg.get("live_model") or DEFAULT_LIVE_MODEL).strip() or DEFAULT_LIVE_MODEL
-            self._voice_name = str(_cfg.get("voice_name") or DEFAULT_VOICE_NAME).strip() or DEFAULT_VOICE_NAME
             try:
                 self._prebuffer_ms = max(0, min(1000, int(_cfg.get("audio_prebuffer_ms", DEFAULT_PREBUFFER_MS))))
             except (TypeError, ValueError):
@@ -1048,9 +1004,6 @@ class JarvisLive:
         except Exception:
             self._asst_name = DEFAULT_ASSISTANT_NAME
             _user_name = ""
-            fast_response = True
-            self._live_model = DEFAULT_LIVE_MODEL
-            self._voice_name = DEFAULT_VOICE_NAME
             self._prebuffer_ms = DEFAULT_PREBUFFER_MS
             self._output_blocksize = OUTPUT_BLOCKSIZE
 
@@ -1119,36 +1072,15 @@ class JarvisLive:
         if learned_str:
             parts.append(learned_str)
         parts.append(sys_prompt)
+        return "\n".join(parts)
 
-        cfg = dict(
-            response_modalities=["AUDIO"],
-            output_audio_transcription={},
-            input_audio_transcription={},
-            system_instruction="\n".join(parts),
-            tools=[{"function_declarations": TOOL_DECLARATIONS + self._plugin_registry.get_tool_declarations()}],
-            session_resumption=types.SessionResumptionConfig(),
-            # Sliding-window compression: session never dies from a full context
-            # window — ADHITHIYA can stay in one conversation for hours
-            context_window_compression=types.ContextWindowCompressionConfig(
-                sliding_window=types.SlidingWindow(),
-            ),
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=self._voice_name
-                    )
-                )
-            ),
-        )
-        if self._enhanced_live and not fast_response:
-            # Affective dialog: ADHITHIYA hears tone/emotion and adapts its voice.
-            # Proactive audio: ADHITHIYA stays silent when speech isn't addressed
-            # to it (background chatter, talking to someone else in the room).
-            cfg["enable_affective_dialog"] = True
-            cfg["proactivity"] = types.ProactivityConfig(proactive_audio=True)
-        return types.LiveConnectConfig(**cfg)
+    def _openai_tools(self) -> list[dict]:
+        """All tool declarations (core + plugins) in OpenAI function format."""
+        from core.llm import to_openai_tools
+        return to_openai_tools(TOOL_DECLARATIONS + self._plugin_registry.get_tool_declarations())
 
-    async def _execute_tool(self, fc) -> types.FunctionResponse:
+
+    async def _execute_tool(self, fc):
         name = fc.name
         args = dict(fc.args or {})
 
@@ -1165,7 +1097,7 @@ class JarvisLive:
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             record_tool_outcome(name, True)
-            return types.FunctionResponse(
+            return _FR(
                 id=fc.id, name=name,
                 response={"result": "ok", "silent": True}
             )
@@ -1183,7 +1115,7 @@ class JarvisLive:
                 )
                 if not self.ui.muted:
                     self.ui.set_state("LISTENING")
-                return types.FunctionResponse(
+                return _FR(
                     id=fc.id, name=name, response={"result": result}
                 )
 
@@ -1241,9 +1173,7 @@ class JarvisLive:
                     self._pending_vision = (img_b, mime_t, user_text, angle)
                     result = (
                         f"[VISION_ACTIVE] {_stall.capitalize()} captured. "
-                        f"Immediately say ONE short natural sentence in the user's own language, "
-                        f"telling them you are looking at their {_stall} right now. "
-                        f"Do NOT describe or guess content — the actual image arrives in the NEXT message."
+                        f"The image is attached to your next message — describe it now."
                     )
 
             elif name == "close_camera":
@@ -1345,14 +1275,13 @@ class JarvisLive:
                 self.ui.write_log("SYS: Shutdown requested.")
                 async def _do_shutdown():
                     await self._save_session_summary()
-                    if self.session:
-                        try:
-                            await self.session.send_client_content(
-                                turns={"parts": [{"text": "Say a brief natural goodbye to the user."}]},
-                                turn_complete=True,
-                            )
-                        except Exception:
-                            pass
+                    try:
+                        farewell = await self._chat_turn(
+                            "Say a brief natural goodbye to the user.", log_as_user=False)
+                        if farewell:
+                            await self._speak_text(farewell)
+                    except Exception:
+                        pass
                     await asyncio.sleep(1.5)
                     self._audio_executor.shutdown(wait=False)
                     self.ui.quit()
@@ -1403,7 +1332,7 @@ class JarvisLive:
             self.ui.set_state("LISTENING")
 
         print(f"[ADHITHIYA] 📤 {name} → {str(result)[:80]}")
-        return types.FunctionResponse(
+        return _FR(
             id=fc.id, name=name,
             response={"result": result}
         )
@@ -1429,217 +1358,291 @@ class JarvisLive:
                 return "clean the desktop"
         return None
 
-    async def _send_realtime(self):
-        while True:
-            msg = await self.out_queue.get()
-            await self.session.send_realtime_input(media=msg)
-
-    async def _listen_audio(self):
-        print("[ADHITHIYA] 🎤 Mic started")
-        loop = asyncio.get_event_loop()
-
-        def callback(indata, frames, time_info, status):
-            with self._speaking_lock:
-                assistant_speaking = self._is_speaking
-            if not assistant_speaking and not self.ui.muted and not self._phone_active:
-                data = indata.tobytes()
-                try:
-                    decision = self._voice_gate.process_audio(data)
-                except (TypeError, ValueError, RuntimeError) as exc:
-                    # A protected microphone must fail closed and make the
-                    # setup problem visible instead of leaking audio.
-                    decision = None
-                    loop.call_soon_threadsafe(
-                        self._on_voice_gate_notice,
-                        f"Voice gate stopped audio: {exc}",
-                    )
-                if decision and decision.message:
-                    loop.call_soon_threadsafe(self._on_voice_gate_notice, decision.message)
-                if decision and decision.state == "verified":
-                    # "It's me" — the enrolled owner's voice matched.
-                    _who = f"it's you, {self._owner_name}" if self._owner_name else "it's you"
-                    loop.call_soon_threadsafe(self._on_voice_gate_notice, f"Voice matched — {_who}.")
-                if decision and decision.accepted:
-                    loop.call_soon_threadsafe(
-                        _enqueue_input_audio,
-                        {"data": data, "mime_type": "audio/pcm"}
-                    )
-
-        # Keep live input current instead of allowing a delayed network send to
-        # create seconds of stale microphone audio.
-        def _enqueue_input_audio(msg):
-            try:
-                self.out_queue.put_nowait(msg)
-            except asyncio.QueueFull:
-                try:
-                    self.out_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
-                try:
-                    self.out_queue.put_nowait(msg)
-                except asyncio.QueueFull:
-                    pass
-
-        try:
-            with sd.InputStream(
-                samplerate=SEND_SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype="int16",
-                # Gemini returns variable-sized 24 kHz PCM chunks. A variable
-                # PortAudio buffer prevents the device from stretching or
-                # truncating chunks when they do not equal the input block size.
-                blocksize=0,
-                latency="low",
-                device=getattr(self.ui, "audio_input_device", None),
-                callback=callback,
-            ):
-                print("[ADHITHIYA] 🎤 Mic stream open")
-                while True:
-                    await asyncio.sleep(0.1)
-        except Exception as e:
-            print(f"[ADHITHIYA] ❌ Mic: {e}")
-            raise
+    # ── Voice pipeline (mic → Whisper → LLM + tools → TTS → speakers) ─────────
 
     def _on_voice_gate_notice(self, message: str) -> None:
         """Display local gate state without sending the gated audio upstream."""
         self.ui.write_log(f"VOICE: {message}")
 
-    async def _receive_audio(self):
-        print("[ADHITHIYA] 👂 Recv started")
-        out_buf, in_buf = [], []
+    def _mic_loop(self) -> None:
+        """Background thread: capture mic PCM, detect speech, transcribe, and
+        hand finished transcripts to the async conversation loop."""
+        loop = self._loop
+        try:
+            stream = sd.InputStream(
+                samplerate=SEND_SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="int16",
+                blocksize=0,
+                latency="low",
+                device=getattr(self.ui, "audio_input_device", None),
+            )
+            stream.start()
+        except Exception as e:
+            print(f"[ADHITHIYA] ❌ Mic: {e}")
+            return
+
+        buf = bytearray()
+        in_speech = False
+        last_speech = time.monotonic()
+
+        def _rms(b: bytes) -> float:
+            if not b:
+                return 0.0
+            try:
+                import numpy as np
+                arr = np.frombuffer(b, dtype=np.int16).astype(np.float32)
+                if arr.size == 0:
+                    return 0.0
+                return float(np.sqrt(np.mean(arr * arr)))
+            except Exception:
+                return 0.0
 
         try:
             while True:
-                async for response in self.session.receive():
+                chunk, _overflowed = stream.read(CHUNK_SIZE)
+                with self._speaking_lock:
+                    speaking = self._is_speaking
+                if speaking or self.ui.muted or self._phone_active:
+                    buf.clear()
+                    in_speech = False
+                    continue
 
-                    if response.data:
-                        if self._interrupted:
-                            pass  # discard: interrupted
-                        else:
-                            if self._turn_done_event and self._turn_done_event.is_set():
-                                self._turn_done_event.clear()
-                            # Split into ~50 ms chunks so interrupt() stops audio within 50 ms
-                            # (24000 Hz × 2 bytes/sample × 0.05 s = 2400 bytes per slice)
-                            _audio_data = response.data
-                            # Relay the voice answer to connected phones too, so
-                            # ADHITHIYA "lives" on both devices — you hear it on
-                            # the Mac AND the phone, whichever you're using.
-                            if self._dashboard and self._dashboard.has_clients():
-                                asyncio.create_task(
-                                    self._dashboard.broadcast_audio(_audio_data)
-                                )
-                            _SLICE = 2400
-                            for _i in range(0, len(_audio_data), _SLICE):
-                                try:
-                                    self.audio_in_queue.put_nowait(
-                                        _audio_data[_i : _i + _SLICE]
-                                    )
-                                except asyncio.QueueFull:
-                                    # Drop the oldest playback chunk so a delayed
-                                    # response never turns into a long audio backlog.
-                                    try:
-                                        self.audio_in_queue.get_nowait()
-                                        self.audio_in_queue.put_nowait(
-                                            _audio_data[_i : _i + _SLICE]
-                                        )
-                                    except asyncio.QueueEmpty:
-                                        pass
+                data = chunk.tobytes()
+                decision = None
+                try:
+                    decision = self._voice_gate.process_audio(data)
+                except (TypeError, ValueError, RuntimeError) as exc:
+                    loop.call_soon_threadsafe(
+                        self._on_voice_gate_notice, f"Voice gate stopped audio: {exc}")
+                if decision and decision.message:
+                    loop.call_soon_threadsafe(self._on_voice_gate_notice, decision.message)
+                if decision and decision.state == "verified":
+                    _who = f"it's you, {self._owner_name}" if self._owner_name else "it's you"
+                    loop.call_soon_threadsafe(
+                        self._on_voice_gate_notice, f"Voice matched — {_who}.")
+                if decision is None or not decision.accepted:
+                    continue
 
-                    if response.server_content:
-                        sc = response.server_content
-
-                        if sc.output_transcription and sc.output_transcription.text:
-                            txt = _clean_transcript(sc.output_transcription.text)
-                            if txt and txt != (out_buf[-1] if out_buf else ""):
-                                out_buf.append(txt)
-
-                        if sc.input_transcription and sc.input_transcription.text:
-                            txt = _clean_transcript(sc.input_transcription.text)
-                            if txt:
-                                in_buf.append(txt)
-                                self._last_user_speech = time.monotonic()
-
-                        if sc.turn_complete:
-                            if self._turn_done_event:
-                                self._turn_done_event.set()
-
-                            # If this turn_complete ends an interrupted response, clear the
-                            # flag and skip all further processing for that turn.
-                            if self._interrupted:
-                                self._interrupted = False
-                                in_buf  = []
-                                out_buf = []
-                                continue
-
-                            full_in = " ".join(in_buf).strip()
-                            if full_in:
-                                learn_from_user_text(full_in)
-                                self.ui.write_log(f"You: {full_in}")
-                                self._session_log.append(f"User: {full_in}")
-                                if self._dashboard:
-                                    asyncio.create_task(self._dashboard.broadcast({
-                                        "type": "log", "speaker": "user",
-                                        "text": full_in,
-                                        "ts": datetime.now().isoformat(),
-                                    }))
-                            in_buf = []
-
-                            full_out = " ".join(out_buf).strip()
-                            if full_out:
-                                self.ui.write_log(f"{self._asst_name}: {full_out}")
-                                self._session_log.append(f"{self._asst_name}: {full_out}")
-                                if self._dashboard:
-                                    asyncio.create_task(self._dashboard.broadcast({
-                                        "type": "log", "speaker": "adhithiya",
-                                        "text": full_out,
-                                        "ts": datetime.now().isoformat(),
-                                    }))
-                            out_buf = []
-
-                            # Vision injection: model finished tool-response turn → now send the image
-                            if self._pending_vision and self.session:
-                                import base64 as _b64
-                                img_b, mime_t, question, angle = self._pending_vision
-                                self._pending_vision = None
-                                b64 = _b64.b64encode(img_b).decode("ascii")
-                                print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle}) → main session")
-                                await self.session.send_client_content(
-                                    turns={"parts": [
-                                        {"inline_data": {"mime_type": mime_t, "data": b64}},
-                                        {"text": question},
-                                    ]},
-                                    turn_complete=True,
-                                )
-                                # Mark next turn_complete behaviour depending on angle
-                                if self._vision_cam_active:
-                                    # Camera: keep busy until ADHITHIYA finishes speaking the answer
-                                    self._vision_cam_active    = False
-                                    self._vision_close_pending = True
-                                else:
-                                    # Screen-only: no camera to close; release busy flag now
-                                    self._vision_busy = False
-                            elif self._vision_close_pending:
-                                # This turn_complete IS the vision answer — close camera + release busy flag
-                                self._vision_close_pending = False
-                                self._vision_busy = False
-                                async def _cam_close():
-                                    await asyncio.sleep(2.0)
-                                    self.ui.stop_camera_stream()
-                                asyncio.create_task(_cam_close())
-
-                    if response.tool_call:
-                        fn_responses = []
-                        for fc in response.tool_call.function_calls:
-                            print(f"[ADHITHIYA] 📞 {fc.name}")
-                            fr = await self._execute_tool(fc)
-                            fn_responses.append(fr)
-                        await self.session.send_tool_response(
-                            function_responses=fn_responses
-                        )
+                if _rms(data) > 300.0:
+                    if not in_speech:
+                        buf.clear()
+                        in_speech = True
+                    buf.extend(data)
+                    last_speech = time.monotonic()
+                elif in_speech:
+                    buf.extend(data)
+                    if time.monotonic() - last_speech > 0.8:
+                        pcm = bytes(buf)
+                        buf.clear()
+                        in_speech = False
+                        if len(pcm) >= SEND_SAMPLE_RATE:  # at least ~1 s of speech
+                            self._finalize_speech(pcm)
         except Exception as e:
-            print(f"[ADHITHIYA] ❌ Recv: {e}")
-            traceback.print_exc()
-            raise
+            print(f"[ADHITHIYA] ❌ Mic loop: {e}")
+        finally:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                pass
+
+    def _finalize_speech(self, pcm: bytes) -> None:
+        """Transcribe a finished utterance and queue it for the conversation loop."""
+        loop = self._loop
+
+        def _transcribe() -> str:
+            try:
+                from core.llm import transcribe_wav
+                return transcribe_wav(self._pcm_to_wav(pcm, SEND_SAMPLE_RATE))
+            except Exception as e:
+                print(f"[ADHITHIYA] ❌ Transcribe: {e}")
+                return ""
+
+        async def _do():
+            text = (await asyncio.to_thread(_transcribe) or "").strip()
+            if text:
+                self._last_user_speech = time.monotonic()
+                try:
+                    self._transcript_queue.put_nowait(text)
+                except asyncio.QueueFull:
+                    pass
+
+        try:
+            asyncio.run_coroutine_threadsafe(_do(), loop)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _pcm_to_wav(pcm: bytes, rate: int) -> bytes:
+        import io
+        import wave
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(CHANNELS)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(pcm)
+        return buf.getvalue()
+
+    @staticmethod
+    def _wav_to_pcm(wav: bytes, target_rate: int) -> bytes:
+        """Decode a WAV blob and resample to target_rate Hz mono int16."""
+        import io
+        import wave
+        try:
+            import numpy as np
+        except Exception:
+            return b""
+        try:
+            with wave.open(io.BytesIO(wav), "rb") as w:
+                rate = w.getframerate()
+                ch = w.getnchannels()
+                raw = w.readframes(w.getnframes())
+                data = np.frombuffer(raw, dtype=np.int16)
+            if ch > 1:
+                data = data.reshape(-1, ch).mean(axis=1).astype(np.int16)
+            if rate != target_rate and len(data) > 0:
+                ratio = target_rate / rate
+                n_out = int(len(data) * ratio)
+                idx = (np.arange(n_out) / ratio).astype(np.int32)
+                idx = np.clip(idx, 0, len(data) - 1)
+                data = data[idx]
+            return data.astype(np.int16).tobytes()
+        except Exception as e:
+            print(f"[Audio] WAV decode failed: {e}")
+            return b""
+
+    @staticmethod
+    def _image_data_url(img_b: bytes, mime: str) -> str:
+        import base64 as _b64
+        return f"data:{mime};base64,{_b64.b64encode(img_b).decode('ascii')}"
+
+    async def _chat_turn(self, user_text: str, log_as_user: bool = True) -> str:
+        """Run one conversation turn: LLM + tool loop (+ vision). Returns the
+        final text answer to speak."""
+        from core.llm import chat
+        user_text = (user_text or "").strip()
+        if not user_text:
+            return ""
+
+        if log_as_user:
+            self._last_user_speech = time.monotonic()
+            self.ui.write_log(f"You: {user_text}")
+            self._session_log.append(f"User: {user_text}")
+            learn_from_user_text(user_text)
+            if self._dashboard:
+                asyncio.create_task(self._dashboard.broadcast({
+                    "type": "log", "speaker": "user", "text": user_text,
+                    "ts": datetime.now().isoformat(),
+                }))
+
+        system_prompt = await asyncio.to_thread(self._build_system_prompt)
+        self._chat_history.append({"role": "user", "content": user_text})
+        messages = [{"role": "system", "content": system_prompt}] + list(self._chat_history[-30:])
+        tools = self._openai_tools()
+
+        for _ in range(8):
+            resp = await asyncio.to_thread(chat, messages, tools)
+            tool_calls = resp.get("tool_calls") or []
+            if not tool_calls:
+                answer = resp.get("text", "").strip()
+                if answer:
+                    self._chat_history.append({"role": "assistant", "content": answer})
+                return answer
+
+            tool_results = []
+            for tc in tool_calls:
+                name = tc.get("name", "")
+                args = dict(tc.get("arguments") or {})
+                shim = type("FC", (), {"id": tc.get("id", "call"), "name": name, "args": args})()
+                fr = await self._execute_tool(shim)
+                result_text = str((fr.response or {}).get("result", "Done."))
+                tool_results.append((name, args, result_text))
+                print(f"[ADHITHIYA] 📞 {name} {args}")
+
+            messages.append({
+                "role": "assistant", "content": None,
+                "tool_calls": [{
+                    "id": tc.get("id", f"call_{i}"),
+                    "type": "function",
+                    "function": {"name": tc.get("name", ""),
+                                 "arguments": json.dumps(tc.get("arguments") or {})},
+                } for i, tc in enumerate(tool_calls)],
+            })
+            for i, (_n, _a, result_text) in enumerate(tool_results):
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_calls[i].get("id", f"call_{i}"),
+                    "content": result_text,
+                })
+
+            # Vision injection: screen_process captured an image — ask about it
+            if self._pending_vision:
+                img_b, mime_t, question, angle = self._pending_vision
+                self._pending_vision = None
+                print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle})")
+                messages.append({"role": "user", "content": [
+                    {"type": "text", "text": question or "What do you see?"},
+                    {"type": "image_url", "image_url": {"url": self._image_data_url(img_b, mime_t)}},
+                ]})
+                self._vision_busy = False
+
+        return "I couldn't complete that task."
+
+    async def _speak_text(self, text: str) -> None:
+        """Synthesise and play a text answer, relaying to connected phones."""
+        text = (text or "").strip()
+        if not text:
+            return
+        self.ui.write_log(f"{self._asst_name}: {text}")
+        self._session_log.append(f"{self._asst_name}: {text}")
+        if self._dashboard:
+            asyncio.create_task(self._dashboard.broadcast({
+                "type": "log", "speaker": "adhithiya", "text": text,
+                "ts": datetime.now().isoformat(),
+            }))
+
+        def _synthesize():
+            from core.llm import tts_wav
+            return tts_wav(text)
+
+        try:
+            wav = await asyncio.to_thread(_synthesize)
+        except Exception as e:
+            print(f"[ADHITHIYA] ❌ TTS: {e}")
+            return
+
+        pcm = await asyncio.to_thread(self._wav_to_pcm, wav, RECEIVE_SAMPLE_RATE)
+        if not pcm:
+            return
+
+        self._interrupted = False
+        while True:                       # drop any audio still queued
+            try:
+                self.audio_in_queue.get_nowait()
+            except Exception:
+                break
+        self._turn_done_event.clear()
+        for i in range(0, len(pcm), 2400):
+            try:
+                self.audio_in_queue.put_nowait(pcm[i:i + 2400])
+            except asyncio.QueueFull:
+                break
+        if self._dashboard and self._dashboard.has_clients():
+            asyncio.create_task(self._dashboard.broadcast_audio(pcm))
+        self._turn_done_event.set()
+
+    async def _speaker_loop(self) -> None:
+        """Speak queued text (monitor alerts, errors, plugin messages)."""
+        while True:
+            text = await self._speak_queue.get()
+            if not text:
+                continue
+            try:
+                await self._speak_text(text)
+            except Exception as e:
+                print(f"[Speak] {e}")
 
     async def _play_audio(self):
         print("[ADHITHIYA] 🔊 Play started")
@@ -1722,14 +1725,7 @@ class JarvisLive:
     # ── Morning briefing ────────────────────────────────────────────────────────
 
     async def _send_startup_briefing(self) -> None:
-        """
-        Two-phase briefing optimized for speed:
-          Phase 1 — instant greeting (no tools) → speech starts in <1s
-          Phase 2 — news pre-fetched in a background thread while Phase 1 plays,
-                    delivered as ready text (no Gemini tool-call round-trip) and
-                    shown on the UI content panel. Waits for turn_complete event
-                    instead of a fixed sleep so there is no unnecessary gap.
-        """
+        """Two-phase briefing: instant greeting first, then news once fetched."""
         memory   = load_memory()
         identity = memory.get("identity", {})
 
@@ -1746,8 +1742,6 @@ class JarvisLive:
         news_future = loop.run_in_executor(None, _fetch_news_sync, "top world news today")
 
         await asyncio.sleep(0.3)
-        if not self.session:
-            return
 
         # ── Phase 1: instant greeting ─────────────────────────────────────────
         lang_clause = f" Respond in {lang}." if lang else ""
@@ -1770,76 +1764,39 @@ class JarvisLive:
             f"Greet the user warmly, mention it is {time_str}, and say you are fetching today's news now.{session_clause} "
             f"Keep it to 2 short sentences max. Do not call any tools.{lang_clause}{name_clause}"
         )
-
-        # Clear the turn-done event so we can wait for Phase 1 to finish
-        if self._turn_done_event:
-            self._turn_done_event.clear()
-
-        await self.session.send_client_content(
-            turns={"parts": [{"text": p1}]},
-            turn_complete=True,
-        )
+        greeting = await self._chat_turn(p1, log_as_user=False)
+        if greeting:
+            await self._speak_text(greeting)
         self.ui.write_log("SYS: Briefing phase 1 (greeting) sent.")
 
-        # ── Phase 2: fire as soon as Phase 1 audio is done ───────────────────
+        # ── Phase 2: deliver news once it's fetched ───────────────────────────
         async def _deliver_news():
             try:
-                lang_str = f" Respond in {lang}." if lang else ""
-
-                # Wait for news fetch (already running) and Phase 1 turn-complete
-                # in parallel — whichever takes longer determines the wait time
-                news_done   = asyncio.wrap_future(news_future)
-                turn_waited = False
-                if self._turn_done_event:
-                    try:
-                        await asyncio.wait_for(self._turn_done_event.wait(), timeout=6.0)
-                        turn_waited = True
-                    except asyncio.TimeoutError:
-                        pass
-
-                # Extra buffer: turn_complete fires when Gemini finishes *generating*
-                # Phase 1, but audio may still be playing.  Waiting a beat here
-                # prevents Phase 2 audio from arriving while Phase 1 is mid-sentence
-                # (which sounds like a "repeated first response" to the user).
-                if turn_waited:
-                    await asyncio.sleep(0.8)
-                else:
-                    await asyncio.sleep(1.0)
-
                 try:
-                    news_text = await asyncio.wait_for(news_done, timeout=8.0)
+                    news_text = await asyncio.wait_for(asyncio.wrap_future(news_future), timeout=8.0)
                 except Exception as e:
                     self.ui.write_log(f"SYS: News fetch timed out/failed: {e!r}")
                     news_text = ""
-
-                if not self.session:
-                    return
 
                 failed = (not news_text) or news_text.startswith(
                     ("No news found", "Search failed", "Please provide")
                 )
                 if not failed:
-                    # Show on UI content panel immediately
                     self.ui.show_content("NEWS — top world news today", news_text)
-
                     p2 = (
                         f"[BRIEFING] Here are today's top news headlines:\n{news_text}\n\n"
                         "Pick ONE headline, summarise it in one sentence, then say the full list "
-                        f"is displayed on screen. Do not call any tools.{lang_str}"
+                        f"is displayed on screen. Do not call any tools.{lang_clause}"
                     )
                 else:
                     self.ui.write_log(
                         f"SYS: News unavailable — backend returned: {news_text[:120]!r}"
                     )
-                    p2 = (
-                        "News headlines could not be fetched right now. "
-                        f"Let the user know briefly.{lang_str}"
-                    )
+                    p2 = "News headlines could not be fetched right now. Let the user know briefly."
 
-                await self.session.send_client_content(
-                    turns={"parts": [{"text": p2}]},
-                    turn_complete=True,
-                )
+                answer = await self._chat_turn(p2, log_as_user=False)
+                if answer:
+                    await self._speak_text(answer)
                 self.ui.write_log("SYS: Briefing phase 2 (news) sent.")
             except Exception as e:
                 print(f"[Briefing] Phase 2 error: {e}")
@@ -1868,14 +1825,11 @@ class JarvisLive:
             "Output ONLY the summary text, nothing else:\n\n" + convo
         )
         try:
-            from google import genai as _genai
-            client = _genai.Client(api_key=_get_api_key())
-            resp   = await asyncio.to_thread(
-                client.models.generate_content,
-                model="gemini-flash-latest",
-                contents=prompt,
+            from core.llm import chat
+            resp = await asyncio.to_thread(
+                chat, [{"role": "user", "content": prompt}]
             )
-            summary = (resp.text or "").strip()
+            summary = (resp.get("text") or "").strip()
             if summary:
                 save_session_summary(summary, lang)
         except Exception as e:
@@ -1888,20 +1842,14 @@ class JarvisLive:
         while True:
             await asyncio.sleep(10)
             alert = await asyncio.to_thread(self._sys_monitor.check)
-            if not alert or not self.session:
+            if not alert:
                 continue
             # Don't interrupt an active conversation
             with self._speaking_lock:
                 speaking = self._is_speaking
             if speaking or (time.monotonic() - self._last_user_speech) < 10:
                 continue
-            try:
-                await self.session.send_client_content(
-                    turns={"parts": [{"text": alert}]},
-                    turn_complete=True,
-                )
-            except Exception as e:
-                print(f"[Monitor] ⚠️ Could not send alert: {e}")
+            self.speak(alert)
 
     # ── Background monitor ──────────────────────────────────────────────────────
 
@@ -1909,31 +1857,19 @@ class JarvisLive:
         """Check user-configured topics once per day; speak alerts when new headlines appear."""
         await asyncio.sleep(300)          # wait 5 min after startup before first check
         while True:
-            if self.session:
-                # Don't interrupt if user spoke recently or ADHITHIYA is mid-sentence
-                with self._speaking_lock:
-                    speaking = self._is_speaking
-                recent_speech = (time.monotonic() - self._last_user_speech) < 30
-                if not speaking and not recent_speech:
-                    try:
-                        alerts = await asyncio.to_thread(monitor_check_all)
-                        memory = load_memory()
-                        lang_e = memory.get("identity", {}).get("language", {})
-                        lang   = (lang_e.get("value", "") if isinstance(lang_e, dict) else str(lang_e)).strip() or "English"
-                        for alert in alerts:
-                            msg = (
-                                f"{alert}\n\n"
-                                f"Inform the user about this development naturally in {lang}. "
-                                "One brief sentence only."
-                            )
-                            await self.session.send_client_content(
-                                turns={"parts": [{"text": msg}]},
-                                turn_complete=True,
-                            )
-                            self.ui.write_log(f"SYS: Monitor alert sent.")
-                            await asyncio.sleep(6)   # gap between consecutive alerts
-                    except Exception as e:
-                        print(f"[Monitor] ⚠️ Background check error: {e}")
+            # Don't interrupt if user spoke recently or ADHITHIYA is mid-sentence
+            with self._speaking_lock:
+                speaking = self._is_speaking
+            recent_speech = (time.monotonic() - self._last_user_speech) < 30
+            if not speaking and not recent_speech:
+                try:
+                    alerts = await asyncio.to_thread(monitor_check_all)
+                    for alert in alerts:
+                        self.speak(alert)
+                        self.ui.write_log("SYS: Monitor alert sent.")
+                        await asyncio.sleep(6)   # gap between consecutive alerts
+                except Exception as e:
+                    print(f"[Monitor] ⚠️ Background check error: {e}")
             await asyncio.sleep(1800)     # check every 30 minutes
 
     # ── Proactive mode ──────────────────────────────────────────────────────────
@@ -1941,14 +1877,11 @@ class JarvisLive:
     async def _run_proactive_mode(self) -> None:
         """
         Background task: periodically checks if the user has been silent long enough,
-        then hands time + memory context to Gemini so it can decide what (if anything)
-        to say proactively. No hardcoded rules — Gemini makes the call.
+        then hands time + memory context to the LLM so it can decide what (if anything)
+        to say proactively. No hardcoded rules — the model makes the call.
         """
         while True:
             await asyncio.sleep(60)   # evaluate once per minute
-
-            if not self.session:
-                continue
 
             with self._speaking_lock:
                 speaking = self._is_speaking
@@ -1969,10 +1902,9 @@ class JarvisLive:
                     monitors     = monitors or None,
                     recent_turns = recent_turns or None,
                 )
-                await self.session.send_client_content(
-                    turns={"parts": [{"text": prompt}]},
-                    turn_complete=True,
-                )
+                answer = await self._chat_turn(prompt)
+                if answer:
+                    await self._speak_text(answer)
                 self.ui.write_log("SYS: Proactive check-in.")
             except Exception as e:
                 print(f"[Proactive] ⚠️ {e}")
@@ -1980,33 +1912,77 @@ class JarvisLive:
     # ── Phone audio relay ────────────────────────────────────────────────────────
 
     async def _relay_phone_audio(self) -> None:
-        """Forward phone mic PCM chunks from dashboard queue into the Gemini Live session."""
+        """Transcribe phone mic PCM chunks (16 kHz mono int16) and queue the
+        finished utterance for the conversation loop."""
         q = self._dashboard._phone_audio_queue
+        buf = bytearray()
+        in_speech = False
+        last_speech = time.monotonic()
+
+        def _rms(b: bytes) -> float:
+            if not b:
+                return 0.0
+            try:
+                import numpy as np
+                arr = np.frombuffer(b, dtype=np.int16).astype(np.float32)
+                return float(np.sqrt(np.mean(arr * arr))) if arr.size else 0.0
+            except Exception:
+                return 0.0
+
         while True:
             try:
-                chunk = await asyncio.wait_for(q.get(), timeout=1.0)
+                chunk = await asyncio.wait_for(q.get(), timeout=0.8)
             except asyncio.TimeoutError:
-                # No audio for 1 s → phone mic inactive, give PC mic back
+                if in_speech and buf:
+                    self._phone_finalize(bytes(buf))
+                buf = bytearray()
+                in_speech = False
                 self._phone_active = False
                 continue
-            self._phone_active = True   # phone is streaming — silence PC mic
+            self._phone_active = True
             with self._speaking_lock:
                 speaking = self._is_speaking
-            if not speaking and not self.ui.muted:
-                if self._voice_gate.config.enabled:
-                    phone_data = chunk.get("data") if isinstance(chunk, dict) else chunk
-                    if not isinstance(phone_data, (bytes, bytearray, memoryview)):
-                        self.ui.write_log("VOICE: Remote audio discarded (invalid PCM payload).")
-                        continue
-                    decision = self._voice_gate.process_audio(bytes(phone_data))
-                    if decision.message:
-                        self._on_voice_gate_notice(decision.message)
-                    if not decision.accepted:
-                        continue
+            if speaking or self.ui.muted:
+                buf = bytearray()
+                in_speech = False
+                continue
+            data = chunk.get("data") if isinstance(chunk, dict) else chunk
+            if not isinstance(data, (bytes, bytearray, memoryview)):
+                continue
+            data = bytes(data)
+            if _rms(data) > 300.0:
+                if not in_speech:
+                    buf = bytearray()
+                    in_speech = True
+                buf.extend(data)
+                last_speech = time.monotonic()
+            elif in_speech:
+                buf.extend(data)
+                if time.monotonic() - last_speech > 0.8:
+                    self._phone_finalize(bytes(buf))
+                    buf = bytearray()
+                    in_speech = False
+
+    def _phone_finalize(self, pcm: bytes) -> None:
+        if len(pcm) < SEND_SAMPLE_RATE:
+            return
+        loop = self._loop
+        async def _do():
+            try:
+                from core.llm import transcribe_wav
+                text = (await asyncio.to_thread(transcribe_wav, self._pcm_to_wav(pcm, SEND_SAMPLE_RATE)) or "").strip()
+            except Exception:
+                text = ""
+            if text:
+                self._last_user_speech = time.monotonic()
                 try:
-                    self.out_queue.put_nowait(chunk)
+                    self._transcript_queue.put_nowait(text)
                 except asyncio.QueueFull:
                     pass
+        try:
+            asyncio.run_coroutine_threadsafe(_do(), loop)
+        except Exception:
+            pass
 
     def _on_phone_connected(self) -> None:
         self.ui.write_log("SYS: Phone connected via Remote Dashboard.")
@@ -2022,19 +1998,13 @@ class JarvisLive:
                 )
                 if not text:
                     continue
-                # Wait up to 8s for session to become ready after a wake
-                for _ in range(80):
-                    if self.session:
-                        break
-                    await asyncio.sleep(0.1)
-                if self.session:
-                    await self.session.send_client_content(
-                        turns={"parts": [{"text": text}]},
-                        turn_complete=True,
-                    )
-                    self.ui.write_log(f"[Web]: {text}")
-                else:
-                    print(f"[Dashboard] Dropped command (no session): {text}")
+                self.ui.write_log(f"[Web]: {text}")
+                try:
+                    answer = await self._chat_turn(text)
+                    if answer:
+                        await self._speak_text(answer)
+                except Exception as e:
+                    print(f"[Dashboard] Command error: {e}")
             except asyncio.TimeoutError:
                 pass
             except Exception as e:
@@ -2045,159 +2015,87 @@ class JarvisLive:
 
     async def run(self):
         self._loop = asyncio.get_event_loop()
+        self._speak_queue = asyncio.Queue(maxsize=200)
+        self._transcript_queue = asyncio.Queue(maxsize=20)
+        self.audio_in_queue = asyncio.Queue(maxsize=AUDIO_INPUT_QUEUE_LIMIT)
+        self._turn_done_event = asyncio.Event()
+        self._chat_history = []
+        self._briefing_sent = getattr(self, "_briefing_sent", False)
 
-        # Start dashboard (optional — needs: pip install fastapi "uvicorn[standard]" cryptography)
+        # Reset transient state
+        self._pending_vision = None
+        self._vision_cam_active = False
+        self._vision_close_pending = False
+        self._vision_busy = False
+        self._vision_last_time = 0.0
+        self._interrupted = False
+
+        # Start dashboard (optional — needs fastapi/uvicorn/cryptography)
         try:
             from dashboard.server import DashboardServer
             self._dashboard = DashboardServer()
             self._dashboard.set_connect_callback(self._on_phone_connected)
             asyncio.create_task(self._dashboard.serve())
-            # Runs for the whole lifetime, not just inside an active session
             asyncio.create_task(self._process_dashboard_commands())
+            asyncio.create_task(self._relay_phone_audio())
         except Exception as e:
             print(f"[Dashboard] Disabled: {e}")
             self._dashboard = None
 
-        while True:
-            try:
-                print("[ADHITHIYA] Connecting...")
-                self.ui.set_state("THINKING")
-                config = self._build_config()
-                voice_status = self._voice_gate.status()
-                if voice_status["enabled"]:
-                    if voice_status["setup_message"]:
-                        self.ui.write_log(f"VOICE: {voice_status['setup_message']}")
-                    else:
-                        self.ui.write_log(
-                            f"VOICE: lock enabled; say {voice_status['wake_word']} "
-                            "to begin local speaker verification."
-                        )
-
-                # Fresh client on every reconnect — avoids stale HTTP session state
-                # v1alpha carries the enhanced audio features (affective dialog,
-                # proactive audio); if they get rejected we fall back to v1beta.
-                client = genai.Client(
-                    api_key=_get_api_key(),
-                    http_options={"api_version": "v1alpha" if self._enhanced_live else "v1beta"}
+        voice_status = self._voice_gate.status()
+        if voice_status["enabled"]:
+            if voice_status["setup_message"]:
+                self.ui.write_log(f"VOICE: {voice_status['setup_message']}")
+            else:
+                self.ui.write_log(
+                    f"VOICE: lock enabled; say {voice_status['wake_word']} "
+                    "to begin local speaker verification."
                 )
 
-                async with (
-                    client.aio.live.connect(model=self._live_model, config=config) as session,
-                    asyncio.TaskGroup() as tg,
-                ):
-                    self.session          = session
-                    self.audio_in_queue   = asyncio.Queue(maxsize=AUDIO_INPUT_QUEUE_LIMIT)
-                    self.out_queue        = asyncio.Queue(maxsize=AUDIO_OUTPUT_QUEUE_LIMIT)
-                    self._turn_done_event = asyncio.Event()
+        # Background tasks — run for the whole process lifetime
+        asyncio.create_task(self._play_audio())
+        asyncio.create_task(self._speaker_loop())
+        asyncio.create_task(self._run_system_monitor())
+        asyncio.create_task(self._run_background_monitor())
+        asyncio.create_task(self._run_proactive_mode())
 
-                    # Reset transient state that must not carry over from a previous session
-                    self._pending_vision       = None
-                    self._vision_cam_active    = False
-                    self._vision_close_pending = False
-                    self._vision_busy          = False
-                    self._vision_last_time     = 0.0
-                    self._interrupted          = False
+        # Morning briefing — fires once per process launch
+        if not self._briefing_sent and get_brief_enabled():
+            self._briefing_sent = True
+            asyncio.create_task(self._send_startup_briefing())
 
-                    print("[ADHITHIYA] Connected.")
-                    self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: ADHITHIYA online.")
+        # Mic capture thread
+        self._mic_thread = threading.Thread(target=self._mic_loop, daemon=True, name="mic")
+        self._mic_thread.start()
 
-                    if self._dashboard:
-                        await self._dashboard.broadcast({"type": "status", "state": "active"})
+        print("[ADHITHIYA] Online.")
+        self.ui.set_state("LISTENING")
+        self.ui.write_log("SYS: ADHITHIYA online.")
+        if self._dashboard:
+            await self._dashboard.broadcast({"type": "status", "state": "active"})
 
-                    tg.create_task(self._send_realtime())
-                    tg.create_task(self._listen_audio())
-                    tg.create_task(self._receive_audio())
-                    tg.create_task(self._play_audio())
-                    tg.create_task(self._run_system_monitor())
-                    tg.create_task(self._run_background_monitor())
-                    tg.create_task(self._run_proactive_mode())
-                    if self._dashboard:
-                        tg.create_task(self._relay_phone_audio())
-
-                    # Morning briefing — fires once per process launch (if enabled)
-                    if not self._briefing_sent and get_brief_enabled():
-                        self._briefing_sent = True
-                        tg.create_task(self._send_startup_briefing())
-
-            except KeyboardInterrupt:
-                raise
-            except SystemExit:
-                raise
-            except BaseException as e:
-                # Catches both Exception and BaseExceptionGroup (Python 3.11+
-                # TaskGroup raises BaseExceptionGroup when tasks are cancelled
-                # externally, which `except Exception` would miss, letting the
-                # exception escape the while-loop and causing asyncio.run() to
-                # start shutdown — resulting in "executor after shutdown" errors).
-                err_str = str(e)
-                print(f"[ADHITHIYA] Error ({type(e).__name__}): {e}")
-                traceback.print_exc()
-
-                # Enhanced audio features rejected by the server (preview API
-                # drift) — drop them and reconnect with the plain config.
-                if self._enhanced_live and (
-                    "INVALID_ARGUMENT" in err_str
-                    or "affective" in err_str.lower()
-                    or "proactiv" in err_str.lower()
-                    or "Unknown name" in err_str
-                    or "unexpected keyword" in err_str
-                ):
-                    self._enhanced_live = False
-                    self.ui.write_log(
-                        "SYS: Advanced audio features unavailable — reconnecting without them."
-                    )
-                    continue
-
-                # Invalid API key — stop hammering the API, prompt re-configuration
-                if "API key not valid" in err_str or "1007" in err_str:
-                    self.ui.write_log("ERR: API key invalid — please re-enter your key.")
-                    self.ui.set_state("SLEEPING")
-                    self.ui.prompt_reconfig()
-                    while not self.ui._win._ready:
-                        await asyncio.sleep(1)
-                    print("[ADHITHIYA] New API key saved — reconnecting...")
-                    _conn_backoff = 3
-                    continue
-
-                # Network / timeout errors — log clearly and back off
-                is_net_err = any(k in err_str for k in (
-                    "TimeoutError", "timed out", "getaddrinfo", "CancelledError",
-                    "ConnectionRefusedError", "OSError", "Cannot connect",
-                ))
-                if is_net_err:
-                    _conn_backoff = min(getattr(self, "_conn_backoff", 3) * 2, 60)
-                    self._conn_backoff = _conn_backoff
-                    self.ui.write_log(
-                        f"NET: Could not connect — retrying in {_conn_backoff}s. "
-                        "(A VPN may be required.)"
-                    )
-                else:
-                    self._conn_backoff = 3
-            finally:
-                self.session = None
-                # Only save if there was a real conversation (≥3 turns)
-                if len(self._session_log) >= 3:
-                    asyncio.create_task(self._save_session_summary())
-
-            self.set_speaking(False)
-            self.ui.set_state("SLEEPING")
-
-            if self._dashboard:
-                await self._dashboard.broadcast({"type": "status", "state": "sleeping"})
-
-            delay = getattr(self, "_conn_backoff", 3)
-            print(f"[ADHITHIYA] Reconnecting in {delay}s...")
-            await asyncio.sleep(delay)
+        # Main conversation loop — one turn at a time
+        while True:
+            user_text = await self._transcript_queue.get()
+            self.ui.set_state("THINKING")
+            try:
+                answer = await self._chat_turn(user_text)
+            except Exception as e:
+                print(f"[ADHITHIYA] Turn error: {e}")
+                answer = f"Something went wrong: {e}"
+            if answer:
+                await self._speak_text(answer)
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
 
 def main():
     # face.png sits next to the source in dev and inside the bundle when frozen
     face_path = BASE_DIR / "face.png"
-    ui = JarvisUI(str(face_path))
+    ui = AdhithiyaUI(str(face_path))
 
     def runner():
         ui.wait_for_api_key()
-        assistant = JarvisLive(ui)
+        assistant = AdhithiyaAssistant(ui)
         try:
             asyncio.run(assistant.run())
         except KeyboardInterrupt:

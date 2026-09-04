@@ -3,12 +3,12 @@ ADHITHIYA plugin — Calorie Counter (webcam vision).
 
 Hold food up to the camera and ask "how many calories is this?" —
 ADHITHIYA switches the HUD to the live camera with an animated scan bar,
-photographs the food, analyzes it with Gemini, speaks a short summary
+photographs the food, analyzes it with the LLM, speaks a short summary
 in your language and shows the full nutrition breakdown in the
 content panel.
 
 Visuals rely on MainWindow's camera signals (_cam_stream_sig /
-_cam_frame_sig, present since Mark LI). If they're ever missing the
+_cam_frame_sig, present since the original UI). If they're ever missing the
 plugin still works — just without the camera view.
 """
 
@@ -45,7 +45,6 @@ PLUGIN = {
     },
 }
 
-_MODEL             = "gemini-2.5-flash"
 _LIVE_SCAN_SECONDS = 1.8     # live preview before the photo is taken
 _FPS               = 25
 _ANIM_MAX_SECONDS  = 25      # animator safety stop
@@ -110,11 +109,10 @@ def _emit_frame(frame_sig, frame: np.ndarray) -> None:
         frame_sig.emit(buf.tobytes())
 
 
-# ── Gemini ───────────────────────────────────────────────────────────────────
+# ── LLM ──────────────────────────────────────────────────────────────────────
 
 def _analyze(photo: np.ndarray, query: str, api_key: str) -> dict:
-    from google import genai
-    from google.genai import types as gtypes
+    from core.llm import generate_content
 
     # match screen_processor's upload size: max 1280 wide
     h, w = photo.shape[:2]
@@ -141,14 +139,7 @@ def _analyze(photo: np.ndarray, query: str, api_key: str) -> dict:
         " If no food is visible, politely say so instead."
     )
 
-    client = genai.Client(api_key=api_key)
-    resp = client.models.generate_content(
-        model=_MODEL,
-        contents=[
-            gtypes.Part.from_bytes(data=jpg.tobytes(), mime_type="image/jpeg"),
-            prompt,
-        ],
-    )
+    resp = generate_content([jpg.tobytes(), prompt])
     text = (resp.text or "").strip()
 
     # tolerate accidental fences / prose around the JSON
@@ -162,7 +153,8 @@ def _analyze(photo: np.ndarray, query: str, api_key: str) -> dict:
 def run(parameters: dict, player=None, session_memory=None) -> str:
     query = (parameters.get("query") or "").strip() or "How many calories is this food?"
 
-    api_key = _config().get("gemini_api_key")
+    from core.llm import get_api_key
+    api_key = get_api_key()
     if not api_key:
         return "I can't run the nutrition scan — no API key is configured."
 
@@ -216,7 +208,7 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
             stream_sig.emit(False)
         return "I couldn't capture a picture of the food, sorry."
 
-    # Phase 2 — freeze frame, keep the scan bar sweeping while Gemini analyzes
+    # Phase 2 — freeze frame, keep the scan bar sweeping while the LLM analyzes
     if frame_sig:
         def _animate():
             a0 = time.time()

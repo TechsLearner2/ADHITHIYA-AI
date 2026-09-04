@@ -4,13 +4,13 @@ What it adds on top of the existing ``study_mode`` / NotebookLM plugins:
 
 * ``start_notes``  — record class audio (system sound via a loopback device
   such as BlackHole, or the microphone) in the background, transcribe it with
-  Gemini, and keep a running Markdown notes file. Returns immediately; the
+  the LLM, and keep a running Markdown notes file. Returns immediately; the
   recording keeps running in a background thread for the whole class.
 * ``stop_notes``   — finish recording and hand back the notes.
 * ``add_note``     — jot down a manual note into the current notes file.
 * ``list_notes``   — list saved notes files.
 * ``read_notes``   — read back a notes file (latest by default).
-* ``summarize``    — turn the notes into a study guide / summary (Gemini).
+* ``summarize``    — turn the notes into a study guide / summary (LLM).
 * ``export_notes`` — save a clean copy of the latest notes to the Desktop.
 
 Notes are stored under ``~/.adhithiya/notes/`` (a user-writable location that
@@ -113,7 +113,8 @@ def _log(player, message: str) -> None:
 
 def _api_key() -> str:
     try:
-        return load_api_keys().get("gemini_api_key", "")
+        from core.llm import get_api_key
+        return get_api_key()
     except Exception:
         return ""
 
@@ -171,22 +172,12 @@ def _to_wav(pcm: bytes, rate: int = SAMPLE_RATE) -> bytes:
 
 
 def _transcribe(pcm: bytes, api_key: str) -> str:
-    """Transcribe one audio slice with Gemini. Returns '' on any failure."""
+    """Transcribe one audio slice with Whisper. Returns '' on any failure."""
     if not api_key or not pcm:
         return ""
     try:
-        from google import genai
-        from google.genai import types
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=[
-                types.Part.from_bytes(data=_to_wav(pcm), mime_type="audio/wav"),
-                "Transcribe this lecture audio verbatim. Output only the "
-                "transcript text, with no preamble.",
-            ],
-        )
-        return (resp.text or "").strip()
+        from core.llm import transcribe_wav
+        return transcribe_wav(_to_wav(pcm))
     except Exception as exc:  # noqa: BLE001 - note-taking must never crash
         print(f"[Study] Transcribe error: {exc}")
         return ""
@@ -266,7 +257,7 @@ def _start(parameters: dict, player) -> str:
             )
         api_key = _api_key()
         if not api_key:
-            return "No Gemini API key is configured, so I can't transcribe class audio."
+            return "No OpenAI API key is configured, so I can't transcribe class audio."
 
         topic = str(parameters.get("topic") or "Class").strip()
         NOTES_DIR.mkdir(parents=True, exist_ok=True)
@@ -386,20 +377,15 @@ def _summarize(parameters: dict, player) -> str:
     content = path.read_text(encoding="utf-8")
     api_key = _api_key()
     if not api_key:
-        return "No Gemini API key configured — I can't summarize."
+        return "No API key configured — I can't summarize."
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=(
-                "Turn these raw class notes into a clean study guide: key points "
-                "as bullet points grouped by topic, then a 3-5 line summary at "
-                "the end. Keep all facts from the notes only — do not invent "
-                "anything. Notes:\n\n" + content[-12000:]
-            ),
-        )
-        guide = (resp.text or "").strip()
+        from core.llm import chat
+        guide = chat([{"role": "user", "content": (
+            "Turn these raw class notes into a clean study guide: key points "
+            "as bullet points grouped by topic, then a 3-5 line summary at "
+            "the end. Keep all facts from the notes only — do not invent "
+            "anything. Notes:\n\n" + content[-12000:]
+        )}])["text"]
     except Exception as exc:  # noqa: BLE001
         return f"Could not summarize: {exc}"
     if not guide:

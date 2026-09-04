@@ -24,9 +24,8 @@ def _get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 def _get_api_key() -> str:
-    path = _get_base_dir() / "config" / "api_keys.json"
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from core.llm import get_api_key
+    return get_api_key()
     
 def _get_desktop() -> Path:
     if _OS == "Linux":
@@ -101,10 +100,9 @@ def _execute_generated_code(code: str, player=None) -> str:
         return f"Execution error: {e}"
 
 
-def _ask_gemini_for_desktop_action(task: str) -> str:
+def _ask_llm_for_desktop_action(task: str) -> str:
 
-    from google import genai as _genai
-    _client = _genai.Client(api_key=_get_api_key())
+    from core.llm import generate_content as _generate
 
     desktop = str(_get_desktop())
 
@@ -142,7 +140,7 @@ Output ONLY the Python code. No explanation, no markdown, no backticks.
 Task: {task}"""
 
     try:
-        response = _client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+        response = _generate(prompt)
         code = response.text.strip()
         if code.startswith("```"):
             lines = code.split("\n")
@@ -462,16 +460,16 @@ def desktop_control(
             if not actual_task:
                 return "Please describe what you want to do on the desktop."
 
-            print(f"[Desktop] Asking Gemini: {actual_task}")
+            print(f"[Desktop] Asking LLM: {actual_task}")
             if player:
                 player.write_log("[Desktop] Generating action...")
 
-            code = _ask_gemini_for_desktop_action(actual_task)
+            code = _ask_llm_for_desktop_action(actual_task)
             return _execute_generated_code(code, player=player)
 
         else:
             if action:
-                code = _ask_gemini_for_desktop_action(action)
+                code = _ask_llm_for_desktop_action(action)
                 return _execute_generated_code(code, player=player)
             return "No action or task specified."
 

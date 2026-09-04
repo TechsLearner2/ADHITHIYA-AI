@@ -1,6 +1,6 @@
 """Autonomous task runner — ADHITHIYA's agentic core.
 
-Given a single goal, this loops with Gemini: at each step the model either calls
+Given a single goal, this loops with the LLM: at each step the model either calls
 one of a small set of *safe* tools or returns a final answer. The loop executes
 the tool, feeds the result back, and repeats until the goal is done (or the step
 budget runs out), then returns one concise summary for ADHITHIYA to speak.
@@ -19,7 +19,7 @@ The runner exposes a curated, side-effect-safe tool set only:
 * run_command — a tiny allowlist (python, pytest, git, …) parsed without a shell,
   confined to the workspace, with destructive/network commands rejected
 * set_reminder / list_calendar / add_note / search_notes — personal productivity
-* generate_image — Gemini Imagen, saved to ~/Pictures/ADHITHIYA/
+* generate_image — OpenAI image model, saved to ~/Pictures/ADHITHIYA/
 * save_memory — long-term memory
 * final_answer — ends the loop
 
@@ -31,6 +31,7 @@ normal confirmation-gated tools.
 from __future__ import annotations
 
 import os
+import json
 import shlex
 import subprocess
 import sys
@@ -38,10 +39,9 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from memory.config_manager import get_data_dir, load_api_keys
+from memory.config_manager import get_data_dir
 from core.project_agent import CommandPolicy
 
-MODEL = "gemini-flash-latest"
 MAX_STEPS = 8
 _COMMAND_TIMEOUT = 60
 
@@ -97,22 +97,23 @@ _TOOL_SPECS: list[tuple[str, str, dict, list[str]]] = [
 
 
 def _declarations():
-    from google.genai import types
-    decls = []
+    """OpenAI-format tool objects for the agent loop."""
+    tools = []
     for name, desc, props, required in _TOOL_SPECS:
-        properties = {
-            k: types.Schema(type=types.Type.STRING, description=v) for k, v in props.items()
-        }
-        decls.append(types.FunctionDeclaration(
-            name=name,
-            description=desc,
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties=properties,
-                required=required,
-            ),
-        ))
-    return decls
+        properties = {k: {"type": "string", "description": v} for k, v in props.items()}
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": desc,
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                },
+            },
+        })
+    return tools
 
 
 # ── safe tool implementations ─────────────────────────────────────────────────
@@ -242,62 +243,66 @@ def run_task(goal: str, player=None, api_key: str | None = None, max_steps: int 
     goal = (goal or "").strip()
     if not goal:
         return "Give me a goal to work on."
-    api_key = api_key or str(load_api_keys().get("gemini_api_key", "") or "")
+    if api_key is None:
+        try:
+            from core.llm import get_api_key
+            api_key = get_api_key()
+        except Exception:
+            api_key = ""
     if not api_key:
-        return "No Gemini API key is configured, so I can't run a task autonomously."
+        return "No API key is configured, so I can't run a task autonomously."
 
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client(api_key=api_key)
-    tool = types.Tool(function_declarations=_declarations())
-    config = types.GenerateContentConfig(
-        system_instruction=_SYSTEM, tools=[tool], temperature=0.3,
-    )
+    from core.llm import chat
+    tools = _declarations()
 
     if player is not None and hasattr(player, "write_log"):
         player.write_log(f"[Agent] Goal: {goal[:120]}")
 
-    history = [types.Content(role="user", parts=[types.Part.from_text(text=f"GOAL: {goal}")])]
+    messages = [
+        {"role": "system", "content": _SYSTEM},
+        {"role": "user", "content": f"GOAL: {goal}"},
+    ]
     final = ""
 
     for step in range(1, max_steps + 1):
         try:
-            resp = client.models.generate_content(model=MODEL, contents=history, config=config)
+            resp = chat(messages, tools=tools, temp=0.3)
         except Exception as e:  # noqa: BLE001
             return f"Task engine error on step {step}: {e}"
 
-        call = None
-        text_parts: list[str] = []
-        for cand in (resp.candidates or []):
-            for part in (cand.content.parts if cand.content else []):
-                fc = getattr(part, "function_call", None)
-                if fc is not None and getattr(fc, "name", None):
-                    call = fc
-                t = getattr(part, "text", None)
-                if t:
-                    text_parts.append(t)
-
-        if call is None:
-            final = "".join(text_parts).strip()
+        calls = resp.get("tool_calls") or []
+        if not calls:
+            final = resp.get("text", "").strip()
             break
 
-        name = call.name
-        args = dict(call.args or {})
-        result = _dispatch(name, args, player)
-        if player is not None and hasattr(player, "write_log"):
-            player.write_log(f"[Agent] step {step}: {name}")
+        # Execute every tool call requested this step, then append results.
+        for tc in calls:
+            name = tc.get("name", "")
+            args = dict(tc.get("arguments") or {})
+            result = _dispatch(name, args, player)
+            if player is not None and hasattr(player, "write_log"):
+                player.write_log(f"[Agent] step {step}: {name}")
+            messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{
+                    "id": tc.get("id", f"call_{step}_{name}"),
+                    "type": "function",
+                    "function": {"name": name, "arguments": json.dumps(args)},
+                }],
+            })
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.get("id", f"call_{step}_{name}"),
+                "content": result,
+            })
+            if name == "final_answer":
+                final = str(args.get("text", "")).strip() or result
 
-        history.append(types.Content(role="model", parts=[
-            types.Part.from_function_call(name=name, args=args)]))
-        history.append(types.Content(role="user", parts=[
-            types.Part.from_function_response(name=name, response={"result": result})]))
-
-        if name == "final_answer":
-            final = str(args.get("text", "")).strip() or result
+        if final:
             break
         if step == max_steps:
-            final = (f"Ran {max_steps} steps; latest result: {result[:800]}")
+            final = (f"Ran {max_steps} steps; latest result: {str(messages[-1].get('content', ''))[:800]}")
 
     if not final:
         final = "I completed the task, but produced no summary."

@@ -85,7 +85,7 @@ class C:
     BAR_BG    = "#011520"
 
 
-# Ana renge (accent) bağlı anahtarlar — durum renkleri (ACC, GREEN, RED…) sabit kalır
+# Keys linked to the accent colour — status colours (ACC, GREEN, RED…) stay fixed
 _HUE_LINKED = (
     "BG", "PANEL", "PANEL2", "BORDER", "BORDER_B", "BORDER_A",
     "PRI", "PRI_DIM", "PRI_GHO", "TEXT", "TEXT_DIM", "TEXT_MED",
@@ -98,10 +98,10 @@ DEFAULT_UI_COLOR = _PALETTE_DEFAULTS["PRI"]
 
 def apply_ui_accent(accent_hex: str) -> bool:
     """
-    Seçilen accent rengine göre tüm turkuaz-ailesi paleti yeniden türetir
-    (hue kaydırma — parlaklık/doygunluk oranları korunur, tasarım bozulmaz).
-    Boyanan öğeler (HUD, dalga formu, metrikler) bir sonraki karede yeni
-    rengi alır; stylesheet tabanlı paneller yeniden kurulduklarında alır.
+    Rebuilds the whole turquoise-family palette from the chosen accent colour
+    (hue shift — brightness/saturation ratios are preserved, design intact).
+    Painted elements (HUD, waveform, metrics) pick up the new colour on the
+    next frame; stylesheet-based panels pick it up when they are rebuilt.
     """
     import colorsys
 
@@ -122,7 +122,7 @@ def apply_ui_accent(accent_hex: str) -> bool:
     base_h            = _hsv(_PALETTE_DEFAULTS["PRI"])[0]
     acc_h, acc_s, _av = _hsv(accent_hex)
     dh   = acc_h - base_h
-    grey = acc_s < 0.08   # griye yakın accent → tüm tema desaturize edilir
+    grey = acc_s < 0.08   # near-grey accent → desaturate the whole theme
 
     for key, hex0 in _PALETTE_DEFAULTS.items():
         h, s, v = _hsv(hex0)
@@ -135,16 +135,16 @@ def apply_ui_accent(accent_hex: str) -> bool:
 
 
 def current_palette() -> dict[str, str]:
-    """C sınıfındaki accent'e bağlı renklerin anlık kopyası."""
+    """Snapshot of the accent-linked colours on class C."""
     return {k: getattr(C, k) for k in _HUE_LINKED}
 
 
 def retheme_all_widgets(old: dict[str, str], new: dict[str, str]) -> None:
     """
-    CANLI tam tema değişimi. Uygulamadaki HER widget'ın stylesheet'inde eski
-    palet renklerini yenileriyle değiştirir ve yeniden çizdirir. Böylece renk
-    değişimi yalnızca boyanan öğelerde değil, panel/buton/kenarlık dahil tüm
-    arayüzde ANINDA uygulanır — yeniden başlatma gerekmez.
+    LIVE full re-theme. Replaces the old palette colours with the new ones in
+    every widget's stylesheet app-wide and repaints. So the colour change
+    applies INSTANTLY across the whole interface — panels, buttons, borders,
+    not just painted elements — no restart needed.
     """
     mapping = {old[k].lower(): new[k].lower()
                for k in old if old[k].lower() != new.get(k, old[k]).lower()}
@@ -1065,11 +1065,11 @@ class SetupOverlay(QWidget):
         sep.setStyleSheet(f"color: {C.BORDER};"); layout.addWidget(sep)
         layout.addSpacing(4)
 
-        layout.addWidget(_lbl("GEMINI API KEY", 8, color=C.TEXT_DIM,
+        layout.addWidget(_lbl("OPENAI API KEY", 8, color=C.TEXT_DIM,
                                align=Qt.AlignmentFlag.AlignLeft))
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._key_input.setPlaceholderText("AIza…")
+        self._key_input.setPlaceholderText("sk-…")
         self._key_input.setFont(QFont("Courier New", 10))
         self._key_input.setFixedHeight(32)
         self._key_input.setStyleSheet(f"""
@@ -1156,15 +1156,15 @@ class SetupOverlay(QWidget):
 
 class HueWheel(QWidget):
     """
-    Dairesel renk seçici. Kullanıcı tutamacı (küçük beyaz daire) çarkın
-    çevresinde sürükleyerek TÜM renk tonları arasından seçim yapar.
-    Merkezdeki dolu daire seçilen rengin canlı önizlemesidir.
+    Circular colour picker. The user drags the handle (small white circle)
+    around the ring to choose from ALL hues. The filled circle in the centre
+    is a live preview of the selected colour.
     """
 
-    hue_picked    = pyqtSignal(str)   # sürükleme sırasında (canlı)
-    hue_committed = pyqtSignal(str)   # tutamaç bırakıldığında
+    hue_picked    = pyqtSignal(str)   # while dragging (live)
+    hue_committed = pyqtSignal(str)   # when the handle is released
 
-    _RING = 16   # halka kalınlığı (px)
+    _RING = 16   # ring thickness (px)
 
     def __init__(self, initial_hex: str = DEFAULT_UI_COLOR, parent=None):
         super().__init__(parent)
@@ -1184,7 +1184,7 @@ class HueWheel(QWidget):
             self._hue = c.hsvHueF()
             self.update()
 
-    # ── geometri yardımcıları ────────────────────────────────────────────────
+    # ── geometry helpers ─────────────────────────────────────────────────────
     def _ring_rect(self) -> QRectF:
         m = self._RING / 2 + 3
         return QRectF(self.rect()).adjusted(m, m, -m, -m)
@@ -1192,11 +1192,11 @@ class HueWheel(QWidget):
     def _hue_from_pos(self, pos: QPointF) -> float:
         c  = QRectF(self.rect()).center()
         dx = pos.x() - c.x()
-        dy = c.y() - pos.y()          # ekran y'si aşağı — matematiksel eksene çevir
-        ang = math.atan2(dy, dx)      # [-π, π], saat yönünün tersi
+        dy = c.y() - pos.y()          # screen y points down — convert to math axis
+        ang = math.atan2(dy, dx)      # [-π, π], counter-clockwise
         return (ang / (2 * math.pi)) % 1.0
 
-    # ── çizim ────────────────────────────────────────────────────────────────
+    # ── drawing ──────────────────────────────────────────────────────────────
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1210,14 +1210,14 @@ class HueWheel(QWidget):
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawEllipse(rect)
 
-        # merkez önizleme dairesi
+        # centre preview circle
         preview = QColor.fromHsvF(self._hue, 1.0, 1.0)
         inner   = rect.adjusted(30, 30, -30, -30)
         p.setPen(QPen(qcol(C.BORDER_B), 1))
         p.setBrush(QBrush(preview))
         p.drawEllipse(inner)
 
-        # sürüklenen tutamaç
+        # dragged handle
         r   = rect.width() / 2
         ang = self._hue * 2 * math.pi
         hx  = center.x() + r * math.cos(ang)
@@ -1226,7 +1226,7 @@ class HueWheel(QWidget):
         p.setBrush(QBrush(QColor("#ffffff")))
         p.drawEllipse(QPointF(hx, hy), 7.5, 7.5)
 
-    # ── fare ─────────────────────────────────────────────────────────────────
+    # ── mouse ────────────────────────────────────────────────────────────────
     def mousePressEvent(self, e):
         self._drag = True
         self._hue  = self._hue_from_pos(e.position())
@@ -1300,7 +1300,7 @@ class CustomizeOverlay(QWidget):
         self._user_input.setStyleSheet(_fs)
         lay.addWidget(self._user_input)
 
-        # ── UI colour — renk çarkı ───────────────────────────────────────────
+        # ── UI colour — colour wheel ─────────────────────────────────────────
         lay.addSpacing(4)
         clr_hdr = QHBoxLayout()
         clr_hdr.addWidget(_lbl("UI COLOUR  —  drag the handle", 8,
@@ -1323,7 +1323,7 @@ class CustomizeOverlay(QWidget):
 
         self._initial_color = (ui_color or DEFAULT_UI_COLOR).strip().lower()
         self._sel_color     = self._initial_color
-        self.on_preview     = None   # callable(hex) — canlı önizleme; MainWindow bağlar
+        self.on_preview     = None   # callable(hex) — live preview; bound by MainWindow
 
         self._wheel = HueWheel(self._sel_color)
         wheel_row = QHBoxLayout()
@@ -1372,9 +1372,9 @@ class CustomizeOverlay(QWidget):
         btn_row.addWidget(cancel_btn)
         lay.addLayout(btn_row)
 
-    # ── renk akışı ───────────────────────────────────────────────────────────
+    # ── colour flow ──────────────────────────────────────────────────────────
     def _set_color(self, hx: str, update_wheel: bool = True, preview: bool = True):
-        """Seçili rengi günceller; hex kutusu + çark senkron kalır, tema canlı önizlenir."""
+        """Update the selected colour; hex box + wheel stay in sync, theme live-previews."""
         self._sel_color = hx.strip().lower()
         self._hex_input.blockSignals(True)
         self._hex_input.setText(self._sel_color)
@@ -1385,14 +1385,14 @@ class CustomizeOverlay(QWidget):
             self.on_preview(self._sel_color)
 
     def _on_wheel_pick(self, hx: str):
-        # Sürükleme sırasında: hex kutusunu güncelle, temayı henüz uygulama
+        # While dragging: update the hex box, don't apply the theme yet
         self._sel_color = hx
         self._hex_input.blockSignals(True)
         self._hex_input.setText(hx)
         self._hex_input.blockSignals(False)
 
     def _on_wheel_commit(self, hx: str):
-        # Tutamaç bırakıldı → tüm arayüzü canlı önizle
+        # Handle released → live-preview the whole interface
         self._set_color(hx, update_wheel=False)
 
     def _on_hex_edited(self, text: str):
@@ -1405,7 +1405,7 @@ class CustomizeOverlay(QWidget):
             self._set_color(t, update_wheel=True, preview=True)
 
     def _cancel(self):
-        # Önizleme uygulandıysa açılıştaki renge geri dön
+        # If a preview was applied, revert to the colour set at launch
         if self.on_preview and self._sel_color != self._initial_color:
             self.on_preview(self._initial_color)
         self.hide()
@@ -1891,7 +1891,7 @@ class AudioDiagnosticsPanel(QWidget):
         heading.setStyleSheet(f"color: {C.PRI};")
         lay.addWidget(heading)
         self._device = QComboBox()
-        self._device.setToolTip("Input device used by diagnostics and Live mode")
+        self._device.setToolTip("Input device used by diagnostics and voice mode")
         lay.addWidget(QLabel("INPUT DEVICE"))
         lay.addWidget(self._device)
         self._level = QProgressBar()
@@ -2132,7 +2132,7 @@ class MainWindow(QMainWindow):
         self._assistant_name: str = (_cfg.get("assistant_name") or DEFAULT_ASSISTANT_NAME).strip()
         _display = self._assistant_name.upper()
 
-        # Kayıtlı UI rengini panel/stylesheet'ler kurulmadan ÖNCE uygula
+        # Apply the saved UI colour BEFORE panels/stylesheets are built
         _ui_color = (_cfg.get("ui_color") or "").strip()
         if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR:
             apply_ui_accent(_ui_color)
@@ -2150,7 +2150,7 @@ class MainWindow(QMainWindow):
         self.on_text_command   = None
         self.on_remote_clicked = None   # callable: () -> (url, key) | None
         self.on_interrupt      = None   # callable: () -> None — stop ADHITHIYA mid-speech
-        self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
+        self.get_plugins       = None   # callable: () -> list[dict], set by AdhithiyaAssistant
         self._muted            = False
         self._current_file: str | None = None
         self._remote_overlay: RemoteKeyOverlay | None = None
@@ -2260,7 +2260,7 @@ class MainWindow(QMainWindow):
         self._clock_tmr.start(1000)
         self._tick_clock()
 
-        # Metrik güncelleme timer'ı
+        # Metrics update timer
         self._metric_tmr = QTimer(self)
         self._metric_tmr.timeout.connect(self._update_metrics)
         self._metric_tmr.start(2000)
@@ -3505,7 +3505,7 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(_fl("[F4] Mute  ·  [F11] Fullscreen"))
         lay.addStretch()
-        lay.addWidget(_fl("Local-first · Gemini Live", C.PRI_DIM))
+        lay.addWidget(_fl("Local-first · OpenAI", C.PRI_DIM))
         return w
 
     def _on_file_selected(self, path: str):
@@ -3722,7 +3722,7 @@ class MainWindow(QMainWindow):
         self._customize_overlay = ov
 
     def _preview_ui_color(self, hex_color: str):
-        """Canlı önizleme — tüm arayüzü yeni renge boyar (config'e YAZMAZ)."""
+        """Live preview — paints the whole interface with the new colour (does NOT write to config)."""
         old = current_palette()
         if apply_ui_accent(hex_color):
             retheme_all_widgets(old, current_palette())
@@ -3741,7 +3741,7 @@ class MainWindow(QMainWindow):
         if ui_color:
             old = current_palette()
             if apply_ui_accent(ui_color):
-                # Tüm arayüzü (paneller, butonlar, kenarlıklar, HUD) canlı boya
+                # Live-paint the whole interface (panels, buttons, borders, HUD)
                 retheme_all_widgets(old, current_palette())
                 color_changed = old["PRI"] != C.PRI
 
@@ -3856,7 +3856,8 @@ class MainWindow(QMainWindow):
         if not API_FILE.exists(): return False
         try:
             d = json.loads(API_FILE.read_text(encoding="utf-8"))
-            return bool(d.get("gemini_api_key")) and bool(d.get("os_system"))
+            key = d.get("openai_api_key") or d.get("gemini_api_key")
+            return bool(key) and bool(d.get("os_system"))
         except Exception:
             return False
 
@@ -3879,7 +3880,7 @@ class MainWindow(QMainWindow):
         API_FILE.write_text(
             json.dumps({
                 **existing,
-                "gemini_api_key": key,
+                "openai_api_key": key,
                 "os_system": os_name,
                 "assistant_name": existing.get("assistant_name", DEFAULT_ASSISTANT_NAME),
             }, indent=4),
@@ -3902,7 +3903,7 @@ class _RootShim:
         pass
 
 
-class JarvisUI:
+class AdhithiyaUI:
     def __init__(self, face_path: str, size=None):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")

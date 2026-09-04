@@ -1,8 +1,8 @@
-"""Local, best-effort gate for the Gemini Live microphone.
+"""Local, best-effort gate for the voice microphone.
 
 The gate deliberately fails closed when it is enabled but a wake-word model,
 speaker model, or enrolled profile is unavailable.  It stores an embedding
-only; enrollment audio is never written to disk or sent to Gemini.
+only; enrollment audio is never written to disk or sent to any cloud.
 
 This is not biometric security.  Resemblyzer is a convenience, local speaker
 similarity check and should not be used as an access-control system.

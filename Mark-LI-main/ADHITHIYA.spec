@@ -21,9 +21,7 @@ datas = [
 
 binaries = []
 hiddenimports = [
-    "google.genai",
-    "google.genai.types",
-    "google.generativeai",
+    "openai",
     "cv2",
     "mss",
     "pyautogui",
@@ -51,11 +49,11 @@ for _pkg in (
     except Exception as _exc:  # noqa: BLE001 — never fail the build on one package
         print(f"[spec] collect_all('{_pkg}') skipped: {_exc}")
 
-# google-genai uses lazy imports; collect its submodules so the Live API works.
+# openai uses lazy imports; collect its submodules so the client always loads.
 try:
-    hiddenimports += collect_submodules("google.genai")
+    hiddenimports += collect_submodules("openai")
 except Exception as _exc:  # noqa: BLE001
-    print(f"[spec] collect_submodules('google.genai') skipped: {_exc}")
+    print(f"[spec] collect_submodules('openai') skipped: {_exc}")
 
 a = Analysis(
     ["main.py"],

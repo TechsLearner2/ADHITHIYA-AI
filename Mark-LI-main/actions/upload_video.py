@@ -5,9 +5,9 @@ to TikTok Studio, using a fixed, always-identical sequence of steps — same
 order, every single time, no improvisation.
 
 The user gives only a rough caption BRIEF ("write that I made a plugin system
-in the new version") — this plugin expands it with Gemini into a full,
+in the new version") — this plugin expands it with the LLM into a full,
 SEO-keyword-rich TikTok caption in the user's own language before the
-automation starts, so no Gemini latency lands in the middle of the click
+automation starts, so no LLM latency lands in the middle of the click
 sequence.
 
 Opera GX is launched the normal way (Win key, type, Enter) — exactly like a
@@ -94,8 +94,8 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from core.llm import get_api_key
+    return get_api_key()
 
 
 def _require_pyautogui() -> None:
@@ -117,12 +117,11 @@ def _paste(text: str) -> None:
 
 def _generate_caption(brief: str) -> str:
     """Expands the user's rough brief into a LONG, SEO-heavy TikTok caption
-    with Gemini, in the same language as the brief, keyword-targeted at
+    with the LLM, in the same language as the brief, keyword-targeted at
     Tier-1 audiences (US/UK/CA/AU/DE...). Falls back to the brief itself if
     the call fails — the upload must never be blocked by a caption error."""
     try:
-        from google import genai
-        client = genai.Client(api_key=_get_api_key())
+        from core.llm import generate_content
         prompt = (
             "You are a TikTok SEO copywriter. The user gives you only a rough "
             "TITLE/BRIEF; you turn it into ONE ready-to-post, LONG caption in "
@@ -144,7 +143,7 @@ def _generate_caption(brief: str) -> str:
             "- Plain text only — no quotes, no markdown, no explanations.\n"
             "- Maximum 3500 characters total."
         )
-        r = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+        r = generate_content(prompt)
         caption = (r.text or "").strip()
         return caption[:3900] if caption else brief
     except Exception as e:
@@ -286,7 +285,7 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
                 "Do NOT call upload_video again.")
 
     # ── Two-phase mode (same trick as instant vision acknowledgment): the
-    #    tool returns IMMEDIATELY so Gemini can speak right away; the actual
+    #    tool returns IMMEDIATELY so ADHITHIYA can speak right away; the actual
     #    automation, the mid-upload small talk and the completion announcement
     #    all run in background threads through the plugin speech channel. ────
     stop_chatter = threading.Event()

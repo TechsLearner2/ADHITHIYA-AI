@@ -166,8 +166,8 @@
 
   <script>
     // ── Auth — bearer token ───────────────────────────────────────────────────
-    const _authToken  = sessionStorage.getItem('jarvis_token');
-    const _sessionKey = sessionStorage.getItem('jarvis_key');
+    const _authToken  = sessionStorage.getItem('adhithiya_token');
+    const _sessionKey = sessionStorage.getItem('adhithiya_key');
 
     if (!_authToken) {
       location.replace('/login');
@@ -469,7 +469,7 @@
       }
     }
 
-    // ── Real-time Voice — PCM16 WebSocket → Gemini Live ──────────────────────
+    // ── Real-time Voice — PCM16 WebSocket → STT (Whisper) ───────────────────
     const micBtn  = document.getElementById('mic-btn');
     let _voiceWs  = null;
     let _audioCtx = null;

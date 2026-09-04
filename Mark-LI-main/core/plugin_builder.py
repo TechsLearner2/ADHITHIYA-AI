@@ -3,7 +3,7 @@
 When the user asks for something no existing tool or plugin covers, the
 plugin_builder tool:
 
-1. drafts a small, self-contained plugin with Gemini,
+1. drafts a small, self-contained plugin with the LLM,
 2. validates it — syntax, plugin contract, and a strict import allowlist —
    before the code is ever imported,
 3. shows the user a preview (nothing runs yet), and
@@ -20,7 +20,7 @@ Safety model
   network/secrets) and forbidden call patterns are rejected outright.
 * Only a small import allowlist is permitted: the Python standard library, a
   couple of project helpers (memory.config_manager, memory.memory_manager), and
-  the user's own Gemini client (google.genai).
+  the user's own AI client (core.llm).
 * Nothing is written to disk or executed until the user confirms.
 """
 
@@ -57,9 +57,9 @@ _ALLOWED_IMPORTS = {
     # project helpers
     "memory.config_manager", "memory.memory_manager",
     # the sanctioned AI channel (uses the user's own API key)
-    "google.genai", "google.genai.types",
+    "core.llm", "openai",
 }
-_ALLOWED_TOP = {"google"}          # subpath allowed for these (e.g. google.genai.types)
+_ALLOWED_TOP = {"core", "openai"}          # subpath allowed for these
 
 _FORBIDDEN_CALLS = {
     "eval", "exec", "compile", "__import__", "globals", "locals",
@@ -71,14 +71,13 @@ _TEXT_TRIPWIRES = (
     "eval(", "exec(", "__import__", "keyring", "getpass", "pickle.",
 )
 
-_GEN_MODEL = "gemini-flash-latest"
-
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _api_key() -> str:
     try:
-        return str(load_api_keys().get("gemini_api_key", "") or "")
+        from core.llm import get_api_key
+        return str(get_api_key() or "")
     except Exception:
         return ""
 
@@ -141,8 +140,7 @@ def _scan_source(source: str) -> str:
 
 
 def _generate(goal: str, name_hint: str, api_key: str) -> str:
-    from google import genai
-    client = genai.Client(api_key=api_key)
+    from core.llm import chat
     prompt = (
         "You are writing ONE small Python plugin for ADHITHIYA, a macOS voice "
         "assistant. Output ONLY the Python code — no markdown fences, no commentary.\n\n"
@@ -170,19 +168,18 @@ def _generate(goal: str, name_hint: str, api_key: str) -> str:
         "functools, itertools, string, tempfile, wave, io, csv, html, xml, "
         "urllib.parse, calendar, difflib, shlex, ...), these project helpers: "
         "memory.config_manager (get_data_dir, load_api_keys), memory.memory_manager, "
-        "and google.genai / google.genai.types.\n"
+        "core.llm, and the openai package.\n"
         "- NEVER: subprocess, os, sys, shell, eval/exec/compile, __import__, "
-        "requests/urllib.request/socket/http (no network except google.genai), "
+        "requests/urllib.request/socket/http (no network except via core.llm or openai), "
         "reading environment variables, or reading credential/secret files.\n"
         "- Never read files outside get_data_dir(); never delete anything the user "
         "did not ask for.\n"
-        "- macOS 12 compatible, pure Python, no third-party packages except google-genai.\n"
+        "- macOS 12 compatible, pure Python; third-party packages limited to the openai SDK.\n"
         "- No work at import time: only define PLUGIN and run().\n"
         "- Handle errors gracefully inside run() and return a message; never raise.\n"
         "- Keep it under ~120 lines and clear.\n"
     )
-    resp = client.models.generate_content(model=_GEN_MODEL, contents=prompt)
-    return (resp.text or "").strip()
+    return chat([{"role": "user", "content": prompt}])["text"]
 
 
 def _validate_draft(code: str):
@@ -293,7 +290,7 @@ def _build(parameters: dict, registry, player) -> str:
     else:
         api_key = _api_key()
         if not api_key:
-            return "No Gemini API key is configured, so I can't write a new ability."
+            return "No API key is configured, so I can't write a new ability."
         code = _strip_code(_generate(goal, name_hint, api_key))
         reason = _scan_source(code)
         if reason:

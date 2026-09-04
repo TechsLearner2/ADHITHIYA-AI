@@ -9,10 +9,10 @@ the user never has to watch a clock.
 
 Every completed focus block is logged to memory/pomodoro_state.json, so the
 user can ask "how much have I focused today?" and ADHITHIYA remembers across
-sessions — the kind of small, persistent detail Gemini alone can't keep.
+sessions — the kind of small, persistent detail the LLM alone can't keep.
 
 Pure Python, no third-party dependency, works on every OS and in every
-language (the spoken lines are phrased by Gemini in the user's language;
+language (the spoken lines are phrased by the LLM in the user's language;
 the HUD panel stays language-neutral: emojis + numbers).
 """
 

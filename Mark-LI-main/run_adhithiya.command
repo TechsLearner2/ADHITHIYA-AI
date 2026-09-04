@@ -40,7 +40,7 @@ fi
 source .venv/bin/activate
 
 # Install dependencies if they're not there yet
-if ! python -c "import google.genai, PyQt6, sounddevice" >/dev/null 2>&1; then
+if ! python -c "import openai, PyQt6, sounddevice" >/dev/null 2>&1; then
   echo "→ Installing dependencies (one time)…"
   python -m pip install -q --upgrade pip
   python -m pip install -q -r "$REQ_FILE"

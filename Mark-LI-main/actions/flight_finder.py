@@ -19,8 +19,8 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from core.llm import get_api_key
+    return get_api_key()
 
 _MONTH_MAP: dict[str, int] = {
 
@@ -62,21 +62,17 @@ def _parse_date(raw: str) -> str:
             return val.strftime("%Y-%m-%d")
 
     try:
-        from google import genai as _genai
-        _client  = _genai.Client(api_key=_get_api_key())
-        response = _client.models.generate_content(
-            model="gemini-flash-lite-latest",
-            contents=(
-                f"Today is {today.strftime('%Y-%m-%d')}. "
-                f"Convert this date expression to YYYY-MM-DD: '{raw}'. "
-                f"Return ONLY the date string, nothing else."
-            )
+        from core.llm import generate_content
+        response = generate_content(
+            f"Today is {today.strftime('%Y-%m-%d')}. "
+            f"Convert this date expression to YYYY-MM-DD: '{raw}'. "
+            f"Return ONLY the date string, nothing else."
         )
         result = response.text.strip()
         if re.match(r"\d{4}-\d{2}-\d{2}", result):
             return result
     except Exception as e:
-        print(f"[FlightFinder] ⚠️ Gemini date parse failed: {e}")
+        print(f"[FlightFinder] ⚠️ LLM date parse failed: {e}")
 
     for month_name, month_num in _MONTH_MAP.items():
         if month_name in lower:
@@ -148,17 +144,19 @@ def _search_flights_browser(
     raw = browser_control({"action": "get_text"})
     return (raw or ""), url
 
-def _parse_flights_with_gemini(
+def _parse_flights_with_llm(
     raw_text:    str,
     origin:      str,
     destination: str,
     date:        str,
 ) -> list[dict]:
-    from google import genai as _genai
-    from google.genai import types
+    from core.llm import generate_content
 
-    _client = _genai.Client(api_key=_get_api_key())
     prompt  = (
+        "You are a flight data extraction expert. Extract flight information "
+        "from raw webpage text. Return ONLY valid JSON — no markdown, no "
+        "explanation.\n\n"
+    ) + (
         f"Extract flight options from {origin} to {destination} on {date} "
         f"from this Google Flights page text:\n\n{raw_text[:12000]}\n\n"
         f"Return a JSON array of up to 5 flights:\n"
@@ -168,22 +166,12 @@ def _parse_flights_with_gemini(
     )
 
     try:
-        response = _client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=(
-                    "You are a flight data extraction expert. "
-                    "Extract flight information from raw webpage text. "
-                    "Return ONLY valid JSON — no markdown, no explanation."
-                )
-            ),
-        )
+        response = generate_content(prompt)
         text     = re.sub(r"```(?:json)?", "", response.text).strip().rstrip("`").strip()
         flights  = json.loads(text)
         return flights if isinstance(flights, list) else []
     except Exception as e:
-        print(f"[FlightFinder] ⚠️ Gemini parse failed: {e}")
+        print(f"[FlightFinder] ⚠️ LLM parse failed: {e}")
         return []
 
 def _format_spoken(
@@ -344,7 +332,7 @@ def flight_finder(parameters: dict, player=None, speak=None) -> str:
         if speak:
             speak("Analysing the results now, sir.")
 
-        flights = _parse_flights_with_gemini(raw_text, origin, destination, date)
+        flights = _parse_flights_with_llm(raw_text, origin, destination, date)
         spoken  = _format_spoken(flights, origin, destination, date)
 
         if speak:

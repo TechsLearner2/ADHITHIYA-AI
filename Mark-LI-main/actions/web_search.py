@@ -5,63 +5,6 @@ import threading
 import time
 from pathlib import Path
 
-# ── Gemini grounding quota circuit breaker ────────────────────────────────────
-# The google_search grounding tool has its own small quota, separate from plain
-# generation.  Once it is spent every call returns 429 — so retrying it at the
-# top of every search only adds a dead round-trip before the DDG fallback runs.
-# After a quota error, skip Gemini entirely for a cooldown period.
-_QUOTA_COOLDOWN_SEC  = 900          # 15 minutes
-_quota_blocked_until = 0.0
-_quota_lock          = threading.Lock()
-
-
-def _gemini_available() -> bool:
-    with _quota_lock:
-        return time.monotonic() >= _quota_blocked_until
-
-
-def _note_gemini_error(exc: Exception) -> None:
-    """Trip the breaker when the error is a quota / rate-limit rejection."""
-    global _quota_blocked_until
-    msg = str(exc)
-    if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-        with _quota_lock:
-            already = time.monotonic() < _quota_blocked_until
-            _quota_blocked_until = time.monotonic() + _QUOTA_COOLDOWN_SEC
-        if not already:
-            print(
-                "[WebSearch] Gemini grounding quota exhausted — skipping it for "
-                f"{_QUOTA_COOLDOWN_SEC // 60} min and serving results from DDG."
-            )
-
-
-class _QuotaCooldown(RuntimeError):
-    """Raised instead of calling Gemini while the quota breaker is open."""
-
-
-def _log_gemini_failure(context: str, exc: Exception) -> None:
-    """Log a Gemini failure — silently when it is just the expected cooldown."""
-    if isinstance(exc, _QuotaCooldown):
-        return          # announced once when the breaker tripped; not a warning
-    print(f"[WebSearch] ⚠️ {context} failed ({exc}) — using DDG instead")
-
-
-def _run_bounded(fn, timeout: float, label: str = "task"):
-    """Run fn() in a daemon thread; return its result, or None if it overruns."""
-    box = [None]
-
-    def _run():
-        try:
-            box[0] = fn()
-        except Exception as e:
-            _log_gemini_failure(label, e)
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    t.join(timeout)
-    if t.is_alive():
-        print(f"[WebSearch] {label} exceeded {timeout:.0f}s — moving on")
-    return box[0]
 
 def _get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -74,35 +17,37 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from core.llm import get_api_key
+    key = get_api_key()
+    if not key:
+        raise RuntimeError("No API key configured")
+    return key
 
 
-def _gemini_search(query: str) -> str:
-    if not _gemini_available():
-        raise _QuotaCooldown("Gemini grounding is in quota cooldown")
+def _run_bounded(fn, timeout: float, label: str = "task"):
+    """Run fn() in a daemon thread; return its result, or None if it overruns."""
+    box = [None]
 
-    from google import genai
+    def _run():
+        try:
+            box[0] = fn()
+        except Exception as e:
+            print(f"[WebSearch] {label} failed ({e}) — using DDG instead")
 
-    client = genai.Client(api_key=_get_api_key())
-    try:
-        response = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=query,
-            config={"tools": [{"google_search": {}}]},
-        )
-    except Exception as e:
-        _note_gemini_error(e)
-        raise
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        print(f"[WebSearch] {label} exceeded {timeout:.0f}s — moving on")
+    return box[0]
 
-    text = ""
-    for part in response.candidates[0].content.parts:
-        if hasattr(part, "text") and part.text:
-            text += part.text
 
-    text = text.strip()
+def _llm_answer(query: str) -> str:
+    """Plain LLM answer."""
+    from core.llm import chat
+    text = chat([{"role": "user", "content": query}])["text"]
     if not text:
-        raise ValueError("Gemini returned an empty response.")
+        raise ValueError("LLM returned an empty response.")
     return text
 
 
@@ -198,26 +143,14 @@ def _format_news(query: str, results: list[dict]) -> str:
 
 # ── Briefing helper ────────────────────────────────────────────────────────────
 
-def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
+def _llm_headlines(n: int = 5) -> tuple[list[str], str]:
     """
-    Fetches current headlines via Gemini grounded search.
+    Fetches current headlines via the LLM.
     Optimised for speed: minimal prompt + strict token cap.
     Returns (headline_list, raw_text_for_display).
     """
     import re
-    from google import genai
-
-    client = genai.Client(api_key=_get_api_key())
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=f"Current world news: {n} headlines. Numbered list, titles only.",
-        config={"tools": [{"google_search": {}}]},
-    )
-
-    raw = ""
-    for part in response.candidates[0].content.parts:
-        if hasattr(part, "text") and part.text:
-            raw += part.text
+    raw = _llm_answer(f"Current world news: {n} headlines. Numbered list, titles only.")
 
     headlines = []
     for line in raw.strip().split("\n"):
@@ -238,31 +171,22 @@ def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
 # ── Modes ──────────────────────────────────────────────────────────────────────
 
 def _search(query: str) -> str:
-    """Default search — Gemini grounded, DDG fallback."""
+    """Default search — LLM first, DDG fallback."""
     try:
-        return _gemini_search(query)
+        return _llm_answer(query)
     except Exception as e:
-        _log_gemini_failure("Gemini search", e)
+        _log_failure("LLM search", e)
         results = _ddg_search(query)
         return _format_ddg(query, results)
 
 
 def _news(query: str) -> str:
     """
-    DDG first, Gemini as backup.
-
-    The old version raced both backends in parallel and kept the first answer.
-    That burned one google_search grounding call on *every* news request —
-    including the startup briefing — even when DDG had already won the race.
-    Grounding has a small quota, so it ran dry after a handful of launches and
-    then 429'd for everything else (research/compare), which are the modes that
-    actually need a synthesised answer.
-
-    DDG news returns in well under a second and gives raw headlines, which is
-    exactly what the briefing wants, so it goes first and Gemini is only touched
+    DDG first, LLM as backup. DDG news returns in well under a second and gives
+    raw headlines — exactly what the briefing wants — so the LLM is only touched
     when DDG comes back empty.
     """
-    gemini_query = f"latest news today: {query}" if query else "top world news today"
+    llm_query = f"latest news today: {query}" if query else "top world news today"
     ddg_query    = query if query else "world news today"
 
     def _ddg_attempt() -> str:
@@ -273,7 +197,7 @@ def _news(query: str) -> str:
         return text
 
     text = _run_bounded(
-        lambda: _gemini_search(gemini_query), timeout=6.0, label="Gemini news"
+        lambda: _llm_answer(llm_query), timeout=6.0, label="LLM news"
     )
     if text and len(text) > 60:
         return text
@@ -283,7 +207,7 @@ def _news(query: str) -> str:
 
 def _research(query: str) -> str:
     """
-    Deep dive — asks Gemini for a comprehensive answer with context.
+    Deep dive — asks the LLM for a comprehensive answer with context.
     Falls back to a wider DDG fetch.
     """
     research_query = (
@@ -291,9 +215,9 @@ def _research(query: str) -> str:
         "Include background context, key facts, current state, and important nuances."
     )
     try:
-        return _gemini_search(research_query)
+        return _llm_answer(research_query)
     except Exception as e:
-        _log_gemini_failure("Gemini research", e)
+        _log_failure("LLM research", e)
         results = _ddg_search(query, max_results=10)
         return _format_ddg(query, results)
 
@@ -302,9 +226,9 @@ def _price(query: str) -> str:
     """Product price lookup — searches for current market prices."""
     price_query = f"current price of {query} — how much does it cost today"
     try:
-        return _gemini_search(price_query)
+        return _llm_answer(price_query)
     except Exception as e:
-        _log_gemini_failure("Gemini price", e)
+        _log_failure("LLM price", e)
         results = _ddg_search(f"{query} price buy", max_results=6)
         return _format_ddg(query, results)
 
@@ -315,9 +239,9 @@ def _compare(items: list[str], aspect: str) -> str:
         "Give specific facts and data."
     )
     try:
-        return _gemini_search(query)
+        return _llm_answer(query)
     except Exception as e:
-        _log_gemini_failure("Gemini compare", e)
+        _log_failure("LLM compare", e)
 
     all_results: dict[str, list] = {}
     for item in items:
