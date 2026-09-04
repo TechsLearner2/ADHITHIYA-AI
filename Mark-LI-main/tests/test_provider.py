@@ -118,6 +118,65 @@ def test_tool_schemas_stay_under_groq_budget():
             assert "description" not in prop, f"param description leaked on {t['function']['name']}"
 
 
+def test_local_provider_no_key_needed(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "local"})
+    assert llm.provider() == "local"
+    assert llm.get_api_key() == "ollama"
+    assert llm.chat_model() == "qwen2.5:7b"
+
+
+def test_local_model_override(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "local", "local_model": "llama3.2"})
+    assert llm.chat_model() == "llama3.2"
+
+
+def test_local_image_gen_refused(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "local"})
+    with pytest.raises(RuntimeError):
+        llm.generate_image("a cat")
+
+
+def test_local_vision_polite(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "local"})
+    out = llm.chat_with_image("what do you see?", b"\x89PNGfake")
+    assert "no vision model" in out
+
+
+class _ToolsErr(Exception):
+    pass
+
+
+def test_chat_retries_without_tools_when_unsupported(monkeypatch):
+    calls = []
+
+    def create(kwargs):
+        calls.append(kwargs)
+        if kwargs.get("tools"):
+            raise _ToolsErr("model does not support tools")
+        return _Resp(_Msg(content="plain reply"))
+
+    class _C:
+        def __init__(self, fn):
+            self.completions = _Completions(fn)
+        def __getattr__(self, name):  # audio/… not used here
+            return None
+
+    class _Cl:
+        def __init__(self, fn):
+            self.chat = _C(fn)
+
+    monkeypatch.setattr(llm, "_client", lambda: _Cl(create))
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "openai"})
+
+    out = llm.chat(
+        [{"role": "user", "content": "hi"}],
+        tools=[{"type": "function", "function": {"name": "x", "parameters": {"type": "object", "properties": {}}}}],
+    )
+    assert out["text"] == "plain reply"
+    assert len(calls) == 2
+    assert "tools" not in calls[1]
+
+
 
 
 class _NotFound(Exception):

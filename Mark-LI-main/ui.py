@@ -1036,6 +1036,7 @@ class _CameraPreview(QWidget):
 
 class SetupOverlay(QWidget):
     done = pyqtSignal(str, str)
+    done_local = pyqtSignal(str)   # fully-local choice — no API key
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1075,8 +1076,15 @@ class SetupOverlay(QWidget):
         layout.addSpacing(4)
 
         _prov = _active_provider()
-        _key_label = "GROQ API KEY" if _prov == "groq" else "OPENAI API KEY"
-        _placeholder = "gsk-…" if _prov == "groq" else "sk-…"
+        if _prov == "local":
+            _key_label = "LOCAL MODE — no key needed (use the button below)"
+            _placeholder = "—"
+        elif _prov == "groq":
+            _key_label = "GROQ API KEY"
+            _placeholder = "gsk-…"
+        else:
+            _key_label = "OPENAI API KEY"
+            _placeholder = "sk-…"
         layout.addWidget(_lbl(_key_label, 8, color=C.TEXT_DIM,
                                align=Qt.AlignmentFlag.AlignLeft))
         self._key_input = QLineEdit()
@@ -1133,6 +1141,25 @@ class SetupOverlay(QWidget):
         """)
         init_btn.clicked.connect(self._submit)
         layout.addWidget(init_btn)
+
+        local_btn = QPushButton("💻  RUN FULLY LOCAL — no key needed")
+        local_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        local_btn.setFixedHeight(34)
+        local_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        local_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.GREEN};
+                border: 1px solid {C.GREEN}; border-radius: 3px;
+            }}
+            QPushButton:hover {{
+                background: #001a0d; border: 1px solid {C.ACC2};
+            }}
+        """)
+        local_btn.clicked.connect(self._submit_local)
+        layout.addWidget(local_btn)
+
+    def _submit_local(self):
+        self.done_local.emit(self._sel_os)
 
     def _sel(self, key: str):
         self._sel_os = key
@@ -3868,6 +3895,8 @@ class MainWindow(QMainWindow):
         if not API_FILE.exists(): return False
         try:
             d = json.loads(API_FILE.read_text(encoding="utf-8"))
+            if str(d.get("provider", "")).strip().lower() == "local":
+                return bool(d.get("os_system"))
             key = d.get("groq_api_key") or d.get("openai_api_key")
             return bool(key) and bool(d.get("os_system"))
         except Exception:
@@ -3883,6 +3912,7 @@ class MainWindow(QMainWindow):
             ow, oh,
         )
         ov.done.connect(self._on_setup_done)
+        ov.done_local.connect(self._on_setup_local)
         ov.show()
         self._overlay = ov
 
@@ -3890,12 +3920,32 @@ class MainWindow(QMainWindow):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         existing = _read_full_config()
         _prov = _active_provider()
-        _key_field = "groq_api_key" if _prov == "groq" else "openai_api_key"
+        data = {
+            **existing,
+            "provider": _prov,
+            "os_system": os_name,
+            "assistant_name": existing.get("assistant_name", DEFAULT_ASSISTANT_NAME),
+        }
+        if _prov == "groq":
+            data["groq_api_key"] = key
+        elif _prov == "openai":
+            data["openai_api_key"] = key
+        API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        self._ready = True
+        if self._overlay:
+            self._overlay.hide()
+            self._overlay = None
+        self._apply_state("LISTENING")
+        self._assistant_name = _read_full_config().get("assistant_name", DEFAULT_ASSISTANT_NAME) or DEFAULT_ASSISTANT_NAME
+        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._assistant_name} online.")
+
+    def _on_setup_local(self, os_name: str):
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        existing = _read_full_config()
         API_FILE.write_text(
             json.dumps({
                 **existing,
-                "provider": _prov,
-                _key_field: key,
+                "provider": "local",
                 "os_system": os_name,
                 "assistant_name": existing.get("assistant_name", DEFAULT_ASSISTANT_NAME),
             }, indent=4),
@@ -3907,7 +3957,8 @@ class MainWindow(QMainWindow):
             self._overlay = None
         self._apply_state("LISTENING")
         self._assistant_name = _read_full_config().get("assistant_name", DEFAULT_ASSISTANT_NAME) or DEFAULT_ASSISTANT_NAME
-        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._assistant_name} online.")
+        self._log.append_log(
+            f"SYS: Initialised. OS={os_name.upper()}. Local AI mode — {self._assistant_name} online.")
 
 class _RootShim:
     def __init__(self, app: QApplication):

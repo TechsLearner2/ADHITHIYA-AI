@@ -14,6 +14,12 @@ interface; switching is a one-line config change, never a code rewrite.
         chat  → gpt-4o-mini · STT → whisper-1 · TTS → gpt-4o-mini-tts
         image → gpt-image-1 (falls back to dall-e-3)
 
+    provider = "local" (free forever, private, offline — runs on your Mac)
+        chat  → Ollama (default qwen2.5:7b; change via "local_model")
+        TTS   → the Mac's built-in `say` voice
+        STT   → local faster-whisper if installed, else your free Groq key
+        image → not available offline (needs the paid OpenAI provider)
+
 Config (config/api_keys.json):
     provider         — "groq" (default) or "openai"
     groq_api_key     — free key from console.groq.com        (provider=groq)
@@ -73,6 +79,11 @@ GROQ_TTS_VOICE       = "troy"   # troy | autumn | hannah | austin | …
 GROQ_VISION_MODEL    = "qwen/qwen3.6-27b"
 GROQ_VISION_FALLBACK = "qwen/qwen3.8-27b"
 
+LOCAL_BASE_URL       = "http://localhost:11434/v1"   # Ollama's OpenAI-compatible endpoint
+LOCAL_CHAT_MODEL     = "qwen2.5:7b"                  # solid local tool-calling; override via config
+LOCAL_CHAT_FALLBACKS = ["llama3.2", "qwen2.5:3b"]    # lighter models, tried if the default isn't pulled
+LOCAL_WHISPER_MODEL  = "base"                        # faster-whisper model (tiny/base/small/…)
+
 _CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}
 _ORPHEUS_DISABLED: bool = False   # set once Orpheus rejects us (terms/plan)
 
@@ -86,8 +97,12 @@ def _cfg():
 
 def get_api_key() -> str:
     """The active provider's key. Reads groq_api_key or openai_api_key
-    (provider-aware), so switching providers never needs new plumbing."""
+    (provider-aware), so switching providers never needs new plumbing.
+    The local provider needs no key — a non-empty placeholder keeps every
+    downstream 'is a key configured?' guard passing."""
     data = _cfg()
+    if provider() == "local":
+        return "ollama"
     if provider() == "groq":
         key = data.get("groq_api_key") or data.get("openai_api_key")
     else:
@@ -100,10 +115,10 @@ def model(name: str) -> str:
 
 
 def provider() -> str:
-    """Which backend is active: 'groq' (free default) or 'openai'."""
+    """Which backend is active: 'groq' (free default), 'openai', or 'local'."""
     data = _cfg()
     p = str(data.get("provider") or "").strip().lower()
-    if p in {"groq", "openai"}:
+    if p in {"groq", "openai", "local"}:
         return p
     # Auto-detect: an OpenAI key (and no Groq key) → openai; otherwise groq.
     if data.get("openai_api_key") and not data.get("groq_api_key"):
@@ -115,7 +130,12 @@ def chat_model() -> str:
     override = model("chat_model")
     if override:
         return override
-    return GROQ_CHAT_MODEL if provider() == "groq" else DEFAULT_CHAT_MODEL
+    p = provider()
+    if p == "groq":
+        return GROQ_CHAT_MODEL
+    if p == "local":
+        return model("local_model") or LOCAL_CHAT_MODEL
+    return DEFAULT_CHAT_MODEL
 
 
 def tts_model() -> str:
@@ -162,13 +182,20 @@ def _model_unavailable(err: Exception) -> bool:
 
 def _chat_models() -> list[str]:
     """Ordered chat-model candidates for the active provider (first valid wins)."""
-    if provider() != "groq":
-        return [chat_model()]
-    out = [chat_model()]
-    for m in GROQ_CHAT_FALLBACKS:
-        if m not in out:
-            out.append(m)
-    return out
+    p = provider()
+    if p == "groq":
+        out = [chat_model()]
+        for m in GROQ_CHAT_FALLBACKS:
+            if m not in out:
+                out.append(m)
+        return out
+    if p == "local":
+        out = [chat_model()]
+        for m in LOCAL_CHAT_FALLBACKS:
+            if m not in out:
+                out.append(m)
+        return out
+    return [chat_model()]
 
 
 def _stt_models() -> list[str]:
@@ -182,13 +209,26 @@ def _stt_models() -> list[str]:
     return out
 
 
+def _tools_unsupported(err: Exception) -> bool:
+    """True if the model rejected the `tools` parameter (some local models
+    don't support function calling). We then retry the turn without tools."""
+    t = str(err).lower()
+    return any(k in t for k in (
+        "does not support tools", "tools not supported", "tools are not",
+        "unknown parameter", "unexpected keyword", "function calling",
+    ))
+
+
 def _client():
     cls = _OpenAI
     if cls is None:
         from openai import OpenAI as cls
     kwargs = {"api_key": get_api_key(), "max_retries": 2, "timeout": 60.0}
-    if provider() == "groq":
+    p = provider()
+    if p == "groq":
         kwargs["base_url"] = GROQ_BASE_URL
+    elif p == "local":
+        kwargs["base_url"] = LOCAL_BASE_URL
     return cls(**kwargs)
 
 
@@ -203,46 +243,63 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
     """
     client = _client()
     last_err: Exception | None = None
+    # First pass sends tools; if the model can't do function calling we retry
+    # without them so plain conversation still works.
+    passes = [True] if not tools else [True, False]
     for model_id in _chat_models():
-        kwargs: dict = {
-            "model": model_id,
-            "messages": messages,
-            "temperature": temperature() if temp is None else temp,
-        }
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
-        if max_tokens:
-            kwargs["max_tokens"] = max_tokens
+        for use_tools in passes:
+            kwargs: dict = {
+                "model": model_id,
+                "messages": messages,
+                "temperature": temperature() if temp is None else temp,
+            }
+            if use_tools and tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
+            if max_tokens:
+                kwargs["max_tokens"] = max_tokens
 
-        try:
-            resp = client.chat.completions.create(**kwargs)
-        except Exception as e:  # noqa: BLE001
-            last_err = e
-            if _model_unavailable(e):
-                print(f"[LLM] Model {model_id!r} unavailable — trying next…")
-                continue
-            raise
-
-        msg = resp.choices[0].message
-        tool_calls = []
-        for tc in (msg.tool_calls or []):
             try:
-                args = json.loads(tc.function.arguments or "{}")
-            except (json.JSONDecodeError, TypeError):
-                args = {}
-            tool_calls.append({
-                "id": tc.id,
-                "name": tc.function.name,
-                "arguments": args,
-            })
-        return {"text": (msg.content or "").strip(), "tool_calls": tool_calls}
+                resp = client.chat.completions.create(**kwargs)
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                if _model_unavailable(e):
+                    print(f"[LLM] Model {model_id!r} unavailable — trying next…")
+                    break   # next model
+                if use_tools and _tools_unsupported(e):
+                    print(f"[LLM] Model {model_id!r} can't use tools — retrying without.")
+                    continue  # next pass (no tools)
+                raise
 
+            msg = resp.choices[0].message
+            tool_calls = []
+            for tc in (msg.tool_calls or []):
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    args = {}
+                tool_calls.append({
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": args,
+                })
+            return {"text": (msg.content or "").strip(), "tool_calls": tool_calls}
+
+    if provider() == "local" and last_err is not None:
+        raise RuntimeError(
+            "Couldn't reach a local model. Make sure Ollama is running "
+            "(https://ollama.com) and you've pulled a model, e.g.: "
+            "`ollama pull qwen2.5:7b`. Last error: " + str(last_err)[:200]
+        )
     raise (last_err or RuntimeError("no chat model available"))
 
 
 def chat_with_image(prompt: str, image_bytes: bytes, mime: str = "image/png") -> str:
     """Ask a vision-capable model about an image. Returns its text answer."""
+    if provider() == "local":
+        return ("This setup runs fully offline and has no vision model yet. "
+                "Pull a vision model in Ollama (e.g. `ollama pull llava`) if you "
+                "want screen/camera understanding.")
     if provider() == "groq":
         try:
             return _groq_vision(prompt, image_bytes, mime)
@@ -317,8 +374,65 @@ def _coerce_image(item) -> tuple[bytes, str]:
 
 # ── speech-to-text ────────────────────────────────────────────────────────────
 
+_FW_CACHE: dict = {}
+
+
+def _fw_model():
+    """Load (and cache) the local faster-whisper model. Downloads on first use."""
+    import faster_whisper
+    name = model("whisper_local_model") or LOCAL_WHISPER_MODEL
+    m = _FW_CACHE.get(name)
+    if m is None:
+        m = faster_whisper.WhisperModel(name, device="cpu", compute_type="int8")
+        _FW_CACHE[name] = m
+    return m
+
+
+def _transcribe_local(wav_bytes: bytes) -> str:
+    """STT for provider='local': local faster-whisper first, then the user's
+    free Groq key (hybrid), so hearing works even without the local model."""
+    import io
+
+    # 1) fully-local whisper (if the optional package is installed)
+    try:
+        import faster_whisper  # noqa: F401
+        have_local = True
+    except Exception:
+        have_local = False
+    if have_local:
+        try:
+            segs, _info = _fw_model().transcribe(io.BytesIO(wav_bytes))
+            text = " ".join(seg.text for seg in segs).strip()
+            if text:
+                return text
+        except Exception as e:  # noqa: BLE001
+            print(f"[STT] Local whisper failed ({e}) — using Groq fallback.")
+
+    # 2) hybrid fallback: free Groq Whisper (only if a groq_api_key exists)
+    groq_key = str(_cfg().get("groq_api_key") or "").strip()
+    if groq_key:
+        cls = _OpenAI
+        if cls is None:
+            from openai import OpenAI as cls
+        client = cls(api_key=groq_key, base_url=GROQ_BASE_URL,
+                     max_retries=2, timeout=60.0)
+        resp = client.audio.transcriptions.create(
+            model=GROQ_STT_MODEL,
+            file=("audio.wav", wav_bytes, "audio/wav"),
+        )
+        return (resp.text or "").strip()
+
+    raise RuntimeError(
+        "No speech-to-text available. Install faster-whisper "
+        "(pip install faster-whisper) or add your free Groq key to "
+        "config/api_keys.json as groq_api_key."
+    )
+
+
 def transcribe_wav(wav_bytes: bytes) -> str:
     """Transcribe a WAV audio blob with Whisper. Returns text ('' on failure)."""
+    if provider() == "local":
+        return _transcribe_local(wav_bytes)
     client = _client()
     last_err: Exception | None = None
     for model_id in _stt_models():
@@ -342,6 +456,8 @@ def transcribe_wav(wav_bytes: bytes) -> str:
 def tts_wav(text: str) -> bytes:
     """Synthesise text as a WAV file (PCM). Raises on failure."""
     global _ORPHEUS_DISABLED
+    if provider() == "local":
+        return _say_tts(text)
     if provider() == "groq":
         if not _ORPHEUS_DISABLED:
             try:
@@ -518,6 +634,11 @@ def _say_tts(text: str) -> bytes:
 
 def generate_image(prompt: str) -> bytes:
     """Generate an image and return its raw bytes (PNG). Raises on failure."""
+    if provider() == "local":
+        raise RuntimeError(
+            "Image generation isn't available offline. It needs the paid "
+            "OpenAI provider (set config provider to 'openai')."
+        )
     if provider() == "groq":
         raise RuntimeError(
             "Image generation isn't available on the free Groq provider. "

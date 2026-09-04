@@ -1591,9 +1591,9 @@ class AdhithiyaAssistant:
                 if self._vision_cam_active:
                     self._vision_cam_active = False
                     self.ui.stop_camera_stream()
-                if provider() == "groq":
-                    # Groq's text chat model can't see images — run the vision
-                    # model separately and feed its description back as text.
+                if provider() in ("groq", "local"):
+                    # These providers' chat models can't see images directly —
+                    # run the vision path separately and feed a description back.
                     desc = await asyncio.to_thread(
                         chat_with_image, question or "What do you see?", img_b, mime_t)
                     messages.append({"role": "user", "content": (

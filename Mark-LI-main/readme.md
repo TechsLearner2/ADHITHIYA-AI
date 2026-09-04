@@ -16,8 +16,29 @@ swapping is a one-line config change.
   > **One-time step:** the Orpheus voice needs you to accept its terms once at
   > [console.groq.com/playground?model=canopylabs%2Forpheus-v1-english](https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english)
   > — otherwise ADHITHIYA speaks with your Mac's voice (everything else works).
+- **Fully local (free forever, private, offline):** Ollama chat on your own Mac
+  (`qwen2.5:7b` by default) + your Mac's built-in `say` voice. Hearing uses local
+  whisper if installed, otherwise your free Groq key. Nothing breaks when a cloud
+  provider changes its mind.
 - **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
   `gpt-image-1` image generation (creating images still needs OpenAI).
+
+---
+
+## 💻 Run fully local (no API key, no internet)
+
+1. Install **Ollama** from [ollama.com](https://ollama.com) and start it once.
+2. In Terminal, pull a model (one-time, ~4.7 GB):
+   ```
+   ollama pull qwen2.5:7b
+   ```
+   (Lighter machines: `ollama pull llama3.2` instead — then set `local_model`.)
+3. Launch ADHITHIYA and click **"RUN FULLY LOCAL — no key needed"** on the setup
+   screen — or set `"provider": "local"` in `config/api_keys.json`.
+
+Hearing: ADHITHIYA uses your free Groq key for speech-to-text if one is already
+saved; for 100% offline hearing, `pip install faster-whisper` (first use
+downloads a small model).
 
 ---
 
