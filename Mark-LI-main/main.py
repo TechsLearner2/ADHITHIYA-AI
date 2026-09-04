@@ -77,6 +77,9 @@ from actions.background_monitor import (
     add_monitor, remove_monitor, list_monitors, check_all as monitor_check_all,
 )
 from actions.web_search        import _news as _fetch_news_sync
+from actions.web_fetch         import web_fetch as web_fetch_action
+from actions.image_generate    import image_generate as image_generate_action
+from core.task_runner          import run_task as run_task_agent
 from memory.config_manager     import (
     get_brief_enabled, get_agent_workspace_root,
     get_self_recovery_config, get_data_dir, default_agent_workspace_root,
@@ -688,6 +691,57 @@ TOOL_DECLARATIONS = [
             "required": ["action"],
         },
     },
+    {
+        "name": "run_task",
+        "description": (
+            "Autonomous multi-step task engine. Give it ONE goal and it plans and "
+            "executes up to 8 steps by itself — searching the web, fetching pages, "
+            "reading/writing files in its workspace, running safe developer "
+            "commands (python, pytest, git), setting reminders, checking "
+            "calendar/notes, and generating images — then reports a summary. Use "
+            "this for any job that needs several steps: research and summarize, "
+            "debug and fix code, draft a document, plan the day. It cannot delete "
+            "files, send messages, or restart — those still need confirmation "
+            "through their normal tools."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "goal": {"type": "STRING", "description": "The single goal to accomplish, in one or two sentences."},
+            },
+            "required": ["goal"],
+        },
+    },
+    {
+        "name": "web_fetch",
+        "description": (
+            "Fetch a web page and return its key content as readable text. Use "
+            "for deep reading: open an article/URL and summarize its actual "
+            "content instead of guessing from search snippets."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "url": {"type": "STRING", "description": "Full http(s) URL to fetch."},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "image_generate",
+        "description": (
+            "Generate an image from a text prompt with Gemini Imagen and save it "
+            "to the Pictures/ADHITHIYA folder. Use when the user asks to create, "
+            "draw, or imagine an image, wallpaper, or concept art."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "prompt": {"type": "STRING", "description": "Detailed image description."},
+            },
+            "required": ["prompt"],
+        },
+    },
 ]
 
 class JarvisLive:
@@ -1225,6 +1279,19 @@ class JarvisLive:
                     None,
                     lambda: plugin_builder_run(args, self._plugin_registry, self.ui),
                 )
+                result = r or "Done."
+
+            elif name == "run_task":
+                r = await loop.run_in_executor(
+                    None, lambda: run_task_agent(str(args.get("goal", "")), self.ui))
+                result = r or "Done."
+
+            elif name == "web_fetch":
+                r = await loop.run_in_executor(None, lambda: web_fetch_action(parameters=args, player=self.ui))
+                result = r or "Done."
+
+            elif name == "image_generate":
+                r = await loop.run_in_executor(None, lambda: image_generate_action(parameters=args, player=self.ui))
                 result = r or "Done."
 
             elif name == "web_search":

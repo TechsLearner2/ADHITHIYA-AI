@@ -25,6 +25,9 @@ API for ultra-low-latency, two-way voice conversation.
 - 🌅 **Morning briefing** — greets you, tells the time, recaps yesterday and reads today's news
 - 🧩 **Plugin system** — drop a `.py` file into `plugins/` to teach it a new skill (no code changes needed)
 - 🛠️ **Builds its own abilities** — ask for something it can't do yet and it writes a brand-new plugin itself, safety-checks it, shows you a preview, and (once you confirm) installs it live — saved to `~/.adhithiya/plugins/` so it's remembered forever
+- 🤖 **Autonomous agent (`run_task`)** — give it one goal and it plans and executes a whole multi-step job by itself: search the web, read pages, work with files, run safe dev commands, set reminders, check calendar/notes, even generate images — then reports back. (Can't delete/send/restart — those still ask you.)
+- 🖼️ **Image generation** — "draw me a wallpaper of…" and it creates an image saved to your Pictures folder
+- 📄 **Deep web reading (`web_fetch`)** — reads the actual page behind any link and summarises it
 - 📱 **Remote dashboard** — control it from your phone via QR code pairing. Fully two-way: speak or type from the phone, and ADHITHIYA's **voice answers play on the phone too** (🔊 toggle), so the assistant "lives" across both devices — the Mac and your phone stay in sync
 - 📚 **Study buddy** — say *"take notes for my class"* and it records the lecture audio, transcribes it live, and writes running notes. Then *"summarize my notes"* turns them into a study guide, *"read my notes"* reads them back, and *"export my notes"* saves them to your Desktop. Works with the existing NotebookLM + flashcards (drop notes into your signed-in NotebookLM browser session)
 - 🎨 **Customization** — change the assistant name, your name, and the whole UI colour
