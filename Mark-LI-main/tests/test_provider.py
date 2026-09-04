@@ -141,5 +141,5 @@ def test_chat_falls_back_when_model_retired(monkeypatch):
 
     out = llm.chat([{"role": "user", "content": "hi"}])
     assert out["text"] == "hi there"
-    assert tried == ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    assert tried == ["openai/gpt-oss-120b", "qwen/qwen3.6-27b"]
 

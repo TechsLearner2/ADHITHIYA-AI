@@ -912,6 +912,7 @@ class AdhithiyaAssistant:
                 answer = await self._chat_turn(stripped)
             except Exception as e:
                 print(f"[ADHITHIYA] Turn error: {e}")
+                self.ui.write_log(f"ERR: {e}")
                 answer = ("Sorry — I hit a problem reaching the AI brain. "
                           "Check your connection and try again.")
             if answer:
@@ -2100,6 +2101,7 @@ class AdhithiyaAssistant:
                 answer = await self._chat_turn(user_text)
             except Exception as e:
                 print(f"[ADHITHIYA] Turn error: {e}")
+                self.ui.write_log(f"ERR: {e}")
                 answer = ("Sorry — I hit a problem reaching the AI brain. "
                           "Check your connection and try again.")
             if answer:

@@ -51,7 +51,13 @@ GROQ_BASE_URL        = "https://api.groq.com/openai/v1"
 # fallback list and auto-advance on "model_not_found", so a Groq retirement can
 # never brick the assistant again.
 GROQ_CHAT_MODEL      = "openai/gpt-oss-120b"
-GROQ_CHAT_FALLBACKS  = ["openai/gpt-oss-20b", "moonshotai/kimi-k2-instruct"]
+GROQ_CHAT_FALLBACKS  = [
+    "qwen/qwen3.6-27b",
+    "openai/gpt-oss-20b",
+    "moonshotai/kimi-k2-instruct",
+    "minimaxai/minimax-m2.7",
+    "groq/compound-mini",
+]
 GROQ_STT_MODEL       = "whisper-large-v3-turbo"
 GROQ_STT_FALLBACKS   = ["whisper-large-v3"]
 GROQ_TTS_MODEL       = "canopylabs/orpheus-v1-english"
@@ -130,16 +136,18 @@ def temperature() -> float:
 
 
 def _model_unavailable(err: Exception) -> bool:
-    """True if the provider rejected the model id (retired / no access)."""
+    """True if the provider rejected the model id — retired, not on this plan,
+    no access, or a billing/quota wall. In any of these cases it's worth trying
+    the next candidate model instead of failing the whole turn."""
     code = getattr(err, "status_code", None) or getattr(err, "code", None)
-    text = str(err)
-    return (
-        code in (404, 402)
-        or "model_not_found" in text
-        or "does not exist" in text
-        or "no longer" in text.lower()
-        or ("not found" in text.lower() and "model" in text.lower())
-    )
+    if code in (401, 402, 403, 404):
+        return True
+    text = str(err).lower()
+    return any(k in text for k in (
+        "model_not_found", "does not exist", "no longer",
+        "not allowed", "no access", "access denied", "quota",
+        "insufficient", "balance", "billing", "not available", "unavailable",
+    ))
 
 
 def _chat_models() -> list[str]:
