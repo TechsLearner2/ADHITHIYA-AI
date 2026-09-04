@@ -57,6 +57,38 @@ def test_vision_unavailable_on_groq(monkeypatch):
     assert "can't look at images" in out
 
 
+def test_chunk_text_splits_at_limit():
+    text = "One two three four five six seven eight nine ten " * 6
+    for chunk in llm._chunk_text(text, 200):
+        assert len(chunk) <= 200
+    assert " ".join(llm._chunk_text(text, 200)) == " ".join(text.split())
+
+
+def test_chunk_text_short_untouched():
+    assert llm._chunk_text("hello world", 200) == ["hello world"]
+
+
+def test_concat_wavs_joins_two():
+    import io
+    import wave
+
+    def mk_wav(samples):
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(24000)
+            w.writeframes(samples)
+        return buf.getvalue()
+
+    a = mk_wav(b"\x00\x00\x01\x00")
+    b = mk_wav(b"\x02\x00\x03\x00")
+    joined = llm._concat_wavs([a, b])
+    with wave.open(io.BytesIO(joined), "rb") as w:
+        assert w.getnframes() == 4
+
+
+
 class _NotFound(Exception):
     status_code = 404
 

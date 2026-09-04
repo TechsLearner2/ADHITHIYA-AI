@@ -9,10 +9,11 @@ optional paid upgrade, both behind one provider layer (`core/llm.py`), so
 swapping is a one-line config change.
 
 - **Free (default):** Groq — `openai/gpt-oss-120b` chat (auto-falls back to
-  `gpt-oss-20b` / `kimi-k2`) + `whisper-large-v3-turbo` speech-to-text, with your
-  Mac's built-in `say` voice for speech.
+  `gpt-oss-20b` / `kimi-k2`), `whisper-large-v3-turbo` speech-to-text, an
+  **Orpheus** voice for speech (falls back to your Mac's `say`), and a **Qwen**
+  vision model for "look at my screen" (preview — see the note below).
 - **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
-  `gpt-image-1` image generation (the only way to get images / screen-vision).
+  `gpt-image-1` image generation (creating images still needs OpenAI).
 
 ---
 
@@ -129,9 +130,10 @@ committed**). Useful options:
 | `assistant_name` / `user_name` | Change what it calls itself / you |
 | `chat_model` | Chat model (Groq default `openai/gpt-oss-120b`; OpenAI default `gpt-4o-mini`) |
 | `stt_model` | Speech-to-text model (Groq default `whisper-large-v3-turbo`; OpenAI default `whisper-1`) |
-| `say_voice` | macOS voice name for speech on Groq (e.g. `Samantha`); leave empty for the system voice |
+| `say_voice` | macOS voice used as the Groq speech **fallback** (e.g. `Samantha`); leave empty for the system voice |
+| `groq_tts_voice` | Groq Orpheus voice — `troy`, `autumn`, `hannah`, `austin` (default `troy`) |
 | `tts_voice` | OpenAI speaking voice — `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`, `coral`, `sage`, `ash`, `ballad` (OpenAI provider only) |
-| `image_model` | OpenAI image model (default `gpt-image-1`) — images/vision need the `openai` provider |
+| `image_model` | OpenAI image model (default `gpt-image-1`) — *creating* images needs the `openai` provider; screen-vision on Groq uses Qwen |
 | `audio_prebuffer_ms` | Jitter cushion before playback starts each turn (`0`–`1000`, default `80`). Higher = smoother but slightly slower first syllable; lower = snappier but more sensitive to network jitter |
 | `audio_blocksize` | Output buffer size in frames (`0` = let the OS choose, default `512`). Smaller = lower latency |
 | `ui_color` | UI accent colour (also changeable from the ⚙ menu) |

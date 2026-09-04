@@ -1523,7 +1523,7 @@ class AdhithiyaAssistant:
     async def _chat_turn(self, user_text: str, log_as_user: bool = True) -> str:
         """Run one conversation turn: LLM + tool loop (+ vision). Returns the
         final text answer to speak."""
-        from core.llm import chat, provider
+        from core.llm import chat, chat_with_image, provider
         user_text = (user_text or "").strip()
         if not user_text:
             return ""
@@ -1591,15 +1591,20 @@ class AdhithiyaAssistant:
                     self._vision_cam_active = False
                     self.ui.stop_camera_stream()
                 if provider() == "groq":
-                    answer = ("I can't look at your screen or camera on the free "
-                              "provider — image vision needs a paid provider like OpenAI.")
-                    self._chat_history.append({"role": "assistant", "content": answer})
-                    return answer
-                print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle})")
-                messages.append({"role": "user", "content": [
-                    {"type": "text", "text": question or "What do you see?"},
-                    {"type": "image_url", "image_url": {"url": self._image_data_url(img_b, mime_t)}},
-                ]})
+                    # Groq's text chat model can't see images — run the vision
+                    # model separately and feed its description back as text.
+                    desc = await asyncio.to_thread(
+                        chat_with_image, question or "What do you see?", img_b, mime_t)
+                    messages.append({"role": "user", "content": (
+                        f"[Vision] You captured an image. The vision model described it as: "
+                        f"{desc}\nNow answer the user's original request based on that description."
+                    )})
+                else:
+                    print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle})")
+                    messages.append({"role": "user", "content": [
+                        {"type": "text", "text": question or "What do you see?"},
+                        {"type": "image_url", "image_url": {"url": self._image_data_url(img_b, mime_t)}},
+                    ]})
 
         return "I couldn't complete that task."
 

@@ -4,10 +4,11 @@ Every AI call in ADHITHIYA goes through here. Two providers sit behind one
 interface; switching is a one-line config change, never a code rewrite.
 
     provider = "groq"   (default — FREE, no credit card)
-        chat  → openai/gpt-oss-120b (free) → gpt-oss-20b / kimi-k2 fallbacks
-        STT   → whisper-large-v3-turbo    (free tier)
-        TTS   → the Mac's built-in `say` voice (free, offline)
-        image → not available on Groq (vision/image need OpenAI)
+        chat   → openai/gpt-oss-120b (free) → gpt-oss-20b / kimi-k2 fallbacks
+        STT    → whisper-large-v3-turbo    (free tier)
+        TTS    → canopylabs/orpheus-v1-english (free) → Mac `say` fallback
+        vision → qwen/qwen3.6-27b (preview; polite message if unavailable)
+        image  → not available on Groq (image generation needs OpenAI)
 
     provider = "openai" (paid)
         chat  → gpt-4o-mini · STT → whisper-1 · TTS → gpt-4o-mini-tts
@@ -19,7 +20,8 @@ Config (config/api_keys.json):
     openai_api_key   — key from platform.openai.com          (provider=openai)
     chat_model       — optional override (per-provider default otherwise)
     stt_model        — optional override
-    say_voice        — macOS voice name for Groq speech (e.g. "Samantha")
+    say_voice        — macOS voice used as the Groq speech FALLBACK (e.g. "Samantha")
+    groq_tts_voice   — Groq Orpheus voice (e.g. "troy", "autumn", "hannah"); default "troy"
     tts_voice        — OpenAI speaking voice (provider=openai), default "alloy"
     image_model      — OpenAI image model (default "gpt-image-1")
     temperature      — optional, default 0.7
@@ -52,6 +54,10 @@ GROQ_CHAT_MODEL      = "openai/gpt-oss-120b"
 GROQ_CHAT_FALLBACKS  = ["openai/gpt-oss-20b", "moonshotai/kimi-k2-instruct"]
 GROQ_STT_MODEL       = "whisper-large-v3-turbo"
 GROQ_STT_FALLBACKS   = ["whisper-large-v3"]
+GROQ_TTS_MODEL       = "canopylabs/orpheus-v1-english"
+GROQ_TTS_VOICE       = "troy"   # troy | autumn | hannah | austin | …
+GROQ_VISION_MODEL    = "qwen/qwen3.6-27b"
+GROQ_VISION_FALLBACK = "qwen/qwen3.8-27b"
 
 _CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}
 
@@ -218,8 +224,13 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
 def chat_with_image(prompt: str, image_bytes: bytes, mime: str = "image/png") -> str:
     """Ask a vision-capable model about an image. Returns its text answer."""
     if provider() == "groq":
-        return ("This provider can't look at images — Groq has no vision model. "
-                "Screen/camera vision and photo analysis need provider='openai' (paid).")
+        try:
+            return _groq_vision(prompt, image_bytes, mime)
+        except Exception as e:  # noqa: BLE001
+            print(f"[Vision] Groq vision unavailable: {e}")
+            return ("I can't look at images right now — the free vision model is "
+                    "unavailable on this plan. Screen/camera vision will work once "
+                    "a vision model is accessible (or with provider='openai').")
     b64 = base64.b64encode(image_bytes).decode("ascii")
     content = [
         {"type": "text", "text": prompt},
@@ -311,7 +322,11 @@ def transcribe_wav(wav_bytes: bytes) -> str:
 def tts_wav(text: str) -> bytes:
     """Synthesise text as a WAV file (PCM). Raises on failure."""
     if provider() == "groq":
-        return _say_tts(text)
+        try:
+            return _orpheus_tts(text)
+        except Exception as e:  # noqa: BLE001
+            print(f"[TTS] Orpheus failed ({e}); falling back to macOS 'say'.")
+            return _say_tts(text)
     client = _client()
     try:
         resp = client.audio.speech.create(
@@ -331,6 +346,105 @@ def tts_wav(text: str) -> bytes:
     if data is None:
         data = resp.read()
     return bytes(data)
+
+
+def _chunk_text(text: str, limit: int = 200) -> list[str]:
+    """Split text into <=limit-char pieces on sentence/word boundaries
+    (Groq's Orpheus TTS caps input at 200 chars per call)."""
+    import re
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return [text] if text else []
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    chunks: list[str] = []
+    cur = ""
+    for sent in sentences:
+        while len(sent) > limit:
+            cut = sent[:limit]
+            sp = cut.rfind(" ")
+            cut = cut[:sp] if sp > 0 else cut
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(cut.strip())
+            sent = sent[len(cut):].strip()
+        if len(cur) + len(sent) + 1 <= limit:
+            cur = f"{cur} {sent}".strip()
+        else:
+            if cur:
+                chunks.append(cur)
+            cur = sent
+    if cur:
+        chunks.append(cur)
+    return [c for c in chunks if c]
+
+
+def _concat_wavs(wavs: list[bytes]) -> bytes:
+    """Concatenate WAV blobs (same format) into a single WAV."""
+    import io
+    import wave
+    if not wavs:
+        raise ValueError("no audio")
+    if len(wavs) == 1:
+        return wavs[0]
+    frames: list[bytes] = []
+    params = None
+    for w in wavs:
+        with wave.open(io.BytesIO(w), "rb") as f:
+            if params is None:
+                params = f.getparams()
+            frames.append(f.readframes(f.getnframes()))
+    out = io.BytesIO()
+    with wave.open(out, "wb") as f:
+        f.setparams(params)
+        for fr in frames:
+            f.writeframes(fr)
+    return out.getvalue()
+
+
+def _orpheus_tts(text: str) -> bytes:
+    """Groq Orpheus TTS → WAV bytes (200-char chunks stitched together)."""
+    client = _client()
+    voice = model("groq_tts_voice") or GROQ_TTS_VOICE
+    wavs: list[bytes] = []
+    for chunk in _chunk_text(text, 200):
+        resp = client.audio.speech.create(
+            model=GROQ_TTS_MODEL,
+            voice=voice,
+            input=chunk,
+            response_format="wav",
+        )
+        data = getattr(resp, "content", None)
+        if data is None:
+            data = resp.read()
+        wavs.append(bytes(data))
+    return _concat_wavs(wavs)
+
+
+def _groq_vision(prompt: str, image_bytes: bytes, mime: str = "image/png") -> str:
+    """Groq Qwen vision model → text description. Raises on failure."""
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    content = [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+    ]
+    client = _client()
+    last_err: Exception | None = None
+    for model_id in (GROQ_VISION_MODEL, GROQ_VISION_FALLBACK):
+        try:
+            resp = client.chat.completions.create(
+                model=model_id,
+                messages=[{"role": "user", "content": content}],
+                temperature=0.3,
+            )
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            if _model_unavailable(e):
+                continue
+            raise
+        msg = resp.choices[0].message
+        return (msg.content or "").strip()
+    raise (last_err or RuntimeError("Groq vision unavailable"))
 
 
 def _say_tts(text: str) -> bytes:
