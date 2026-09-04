@@ -161,7 +161,7 @@ class ProjectAgent:
         workspace_root: Path,
         project_root: Path | None = None,
         *,
-        enabled: bool = False,
+        enabled: bool = True,
         command_policy: CommandPolicy | None = None,
         progress: Callable[[str], None] | None = None,
         command_timeout: int = 120,
@@ -277,7 +277,7 @@ class ProjectAgent:
             self.state = AgentState.IDLE
             return AgentResult(
                 self.state,
-                "Project Agent is disabled. Set agent_mode.enabled to true in config/api_keys.json to opt in.\n"
+                "Project work is paused right now.\n"
                 + self.recovery.status_text(),
             )
 

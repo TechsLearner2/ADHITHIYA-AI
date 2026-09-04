@@ -1,12 +1,12 @@
 """
-JARVIS plugin — Water reminder & hydration tracker.
+ADHITHIYA plugin — Water reminder & hydration tracker.
 
-The "drink water" app, but as a voice command. JARVIS nudges the user to
+The "drink water" app, but as a voice command. ADHITHIYA nudges the user to
 drink at a chosen interval (default every 60 min) and *speaks* the reminder
 through the live channel — "you've had 1.2 of your 2 litres, time for a
 glass". The user logs sips by voice ("I drank a glass of water") and can ask how
 much they've drunk today; the running total lives in memory/water_state.json
-and resets each morning, so JARVIS remembers across sessions.
+and resets each morning, so ADHITHIYA remembers across sessions.
 
 Pure Python, no third-party dependency, cross-OS, language-neutral (spoken
 lines are phrased by Gemini in the user's language; the HUD panel is just
@@ -134,7 +134,7 @@ def _clamp(val, default, lo, hi):
 
 
 def _remember(data: dict) -> None:
-    """Overwrite a single rolling memory note with today's water intake, so JARVIS
+    """Overwrite a single rolling memory note with today's water intake, so ADHITHIYA
     can answer 'how much water did I drink' in a later conversation. One fixed key
     → it replaces the previous value each time (memory never accumulates)."""
     try:
@@ -170,7 +170,7 @@ def _worker(player, stop: threading.Event) -> None:
                  f"Remind the user to drink a glass of water now. Mention they've "
                  f"had {ml} of {goal} millilitres today, {remaining} to go. "
                  f"Keep it to one short, friendly sentence.")
-            _log(player, f"JARVIS: Hydration reminder — {ml}/{goal} ml so far.")
+            _log(player, f"ADHITHIYA: Hydration reminder — {ml}/{goal} ml so far.")
     finally:
         with _lock:
             _state["running"] = False

@@ -22,3 +22,14 @@ memory/*.json
 Thumbs.db
 desktop.ini
 *.bak
+
+# macOS / build artifacts
+.DS_Store
+ADHITHIYA.app/
+*.backup
+
+# Build outputs
+.venv-build/
+dist/
+build/
+*.spec.bak

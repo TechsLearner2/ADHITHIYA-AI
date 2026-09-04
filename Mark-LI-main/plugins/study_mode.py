@@ -17,6 +17,11 @@ from . import mac_notebooklm, mac_reminders, mac_calendar, pomodoro, quiz
 
 
 STATE_FILE = Path(__file__).resolve().parent.parent / "memory" / "study_flashcards.json"
+try:
+    from memory.memory_manager import MEMORY_PATH
+    STATE_FILE = MEMORY_PATH.parent / "study_flashcards.json"
+except Exception:
+    pass  # fall back to the repo-relative path above
 _LOCK = Lock()
 _MAX_CARDS = 300
 _MAX_TEXT = 500

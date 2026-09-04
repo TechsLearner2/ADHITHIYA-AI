@@ -1,13 +1,13 @@
 """
-JARVIS plugin — Quiz me.
+ADHITHIYA plugin — Quiz me.
 
 "Test me on the French subjunctive", "ask me five questions about what's in
-this PDF", "quiz me on yesterday's chemistry chapter". JARVIS puts the questions
+this PDF", "quiz me on yesterday's chemistry chapter". ADHITHIYA puts the questions
 on screen, you answer them at your own pace, and it tells you how you did.
 
 WHO WRITES THE QUESTIONS — and why it matters
 ---------------------------------------------
-JARVIS does, in the same breath it calls this tool. The questions arrive as the
+ADHITHIYA does, in the same breath it calls this tool. The questions arrive as the
 `questions` argument, already written by the model that is mid-conversation with
 you. This plugin never calls an API of its own.
 
@@ -22,7 +22,7 @@ IT DOES NOT BLOCK
 -----------------
 `start` puts the questions on the board and returns immediately. A tool call
 that waited for a human to finish a quiz would sit there for minutes and time
-out. When you finish, the UI hands the results back to JARVIS as a new message,
+out. When you finish, the UI hands the results back to ADHITHIYA as a new message,
 exactly the way a dropped file does — so the marking, the encouragement, and the
 decision to remember any of it happen in normal conversation, in your language.
 
@@ -30,20 +30,20 @@ IT KEEPS NO STORE OF ITS OWN
 ----------------------------
 No quiz_history.json, no per-plugin database. What is worth carrying between
 sessions goes where everything else about you goes — long-term memory, through
-the same save_memory JARVIS uses for anything else, and only when there is real
+the same save_memory ADHITHIYA uses for anything else, and only when there is real
 continuity to carry: you are working through a language, you keep losing the
 same tense. A score from one Tuesday is not that.
 
 That is a rule about the whole app, not about this plugin. Long-term memory is
-what makes one person's JARVIS different from another's, and it takes its shape
+what makes one person's ADHITHIYA different from another's, and it takes its shape
 from what they actually do. If every plugin opened a private file beside it, the
-interesting part would be scattered across a dozen of them and JARVIS would know
+interesting part would be scattered across a dozen of them and ADHITHIYA would know
 less about you, not more.
 
 FOR EVERYONE: no keys, no setup, no dependencies beyond the standard library,
 same on Windows, macOS and Linux. Language-agnostic — answers are compared after
 Unicode normalisation rather than through any per-language table, and anything
-the comparison is unsure about is handed to JARVIS to judge rather than being
+the comparison is unsure about is handed to ADHITHIYA to judge rather than being
 marked wrong.
 """
 from __future__ import annotations
@@ -144,7 +144,7 @@ PLUGIN = {
 # Normalise, do not pattern-match. Stripping accents and case makes "café",
 # "CAFE" and "cafe" agree without a rule per language, so the same code path
 # serves Turkish, Greek and Vietnamese alike. Whatever this cannot decide is
-# handed to JARVIS to mark instead of being called wrong.
+# handed to ADHITHIYA to mark instead of being called wrong.
 
 def _norm(s) -> str:
     s = unicodedata.normalize("NFD", str(s or "").strip().casefold())
@@ -164,7 +164,7 @@ def _truthy(s):
 
 
 def grade(question: dict, given: str):
-    """True = right, False = wrong, None = JARVIS should mark this one."""
+    """True = right, False = wrong, None = ADHITHIYA should mark this one."""
     qtype = str(question.get("type") or "").strip()
     correct = str(question.get("answer") or "")
     opts = question.get("options") or []
@@ -229,7 +229,7 @@ def _resolve_answer(answer: str, opts: list) -> str:
         i = int(token) - 1                    # people and models both count from 1
         if 0 <= i < len(opts):
             return opts[i]
-    return answer                             # unusable — grade() defers to JARVIS
+    return answer                             # unusable — grade() defers to ADHITHIYA
 
 
 def clean_questions(raw) -> list:

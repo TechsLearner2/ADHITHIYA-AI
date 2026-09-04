@@ -1,6 +1,6 @@
 import platform as _platform
 import subprocess as _subprocess
-import sys as _sys
+import sys
 
 # ── Make stdout/stderr UTF-8 tolerant ────────────────────────────────────────
 # On non-UTF-8 Windows consoles (cp1254/cp1252/cp936...) any print() containing
@@ -8,7 +8,7 @@ import sys as _sys
 # handlers, so the handler itself would blow up and skip the recovery code that
 # follows it — turning a recoverable error into a silent hang.  errors="replace"
 # makes every print safe.
-for _stream in (_sys.stdout, _sys.stderr):
+for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
@@ -30,11 +30,11 @@ if _platform.system() == "Windows":
 # ─────────────────────────────────────────────────────────────────────────────
 
 import asyncio
+import concurrent.futures
 import re
 import threading
 import time
 import json
-import sys
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -49,6 +49,9 @@ from memory.memory_manager import (
 )
 from memory.adaptive_learning import (
     learn_from_user_text, record_tool_outcome, format_learning_for_prompt,
+)
+from memory.self_learning import (
+    learn_from_failure, format_learned_for_prompt,
 )
 
 from actions.file_processor import file_processor
@@ -75,18 +78,21 @@ from actions.background_monitor import (
 )
 from actions.web_search        import _news as _fetch_news_sync
 from memory.config_manager     import (
-    get_brief_enabled, get_agent_mode_enabled, get_agent_workspace_root,
-    get_self_recovery_config,
+    get_brief_enabled, get_agent_workspace_root,
+    get_self_recovery_config, get_data_dir, default_agent_workspace_root,
 )
 from memory.config_manager     import DEFAULT_ASSISTANT_NAME
-from core.plugin_loader        import discover_plugins
+from core.plugin_loader        import discover_plugins, USER_PLUGINS_DIR, USER_PLUGINS_PREFIX
+from core.plugin_builder       import run as plugin_builder_run
 from core.project_agent       import AgentResult, ProjectAgent
 from core.self_recovery       import SelfRecovery
 from core.voice_gate           import VoiceGate
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
+        # PyInstaller: bundled assets (prompt.txt, plugins, face.png) live in
+        # sys._MEIPASS, not next to the executable.
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     return Path(__file__).resolve().parent
 
 
@@ -109,19 +115,32 @@ def _plugin_failure_is_recoverable(name: str, args: dict, result: object) -> boo
     return bool(_plugin_commands(args) or any(key in args for key in ("goal", "task")))
 
 BASE_DIR        = get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+API_CONFIG_PATH = get_data_dir() / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
-LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+DEFAULT_LIVE_MODEL  = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+DEFAULT_VOICE_NAME  = "Charon"
 CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
 AUDIO_INPUT_QUEUE_LIMIT = 40
 AUDIO_OUTPUT_QUEUE_LIMIT = 40
+OUTPUT_BLOCKSIZE      = 512      # explicit small output buffer (~21 ms @ 24 kHz)
+DEFAULT_PREBUFFER_MS  = 80       # jitter cushion before playback starts each turn
+MAX_BATCH_BYTES       = 4800     # ~100 ms @ 24 kHz / 16-bit mono per write
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    try:
+        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)["gemini_api_key"]
+    except FileNotFoundError:
+        raise RuntimeError(
+            "config/api_keys.json not found — run the app once and enter your Gemini API key."
+        )
+    except KeyError:
+        raise RuntimeError(
+            "config/api_keys.json is missing the 'gemini_api_key' field."
+        )
 
 
 def _load_system_prompt() -> str:
@@ -275,8 +294,7 @@ TOOL_DECLARATIONS = [
         "name": "close_camera",
         "description": (
             "Closes the live camera view shown on screen. "
-            "Call when user says: close camera, stop camera, turn off camera, "
-            "kamerayı kapat, kapat, creepy, etc."
+            "Call when user says: close camera, stop camera, turn off the camera, etc."
         ),
         "parameters": {"type": "OBJECT", "properties": {}, "required": []}
     },
@@ -467,7 +485,7 @@ TOOL_DECLARATIONS = [
         "name": "manage_monitor",
         "description": (
             "Add, remove, or list background monitoring topics. "
-            "JARVIS checks these topics once a day and alerts the user when there is a new development. "
+            "ADHITHIYA checks these topics once a day and alerts the user when there is a new development. "
             "Use 'add' when the user says 'monitor X', 'track X', 'follow X'. "
             "Use 'remove' when the user says 'stop monitoring X'. "
             "Use 'list' when the user asks what is being monitored. "
@@ -489,11 +507,11 @@ TOOL_DECLARATIONS = [
         },
     },
     {
-        "name": "shutdown_jarvis",
+        "name": "shutdown_adhithiya",
         "description": (
             "Shuts down the assistant completely. "
             "Call this when the user expresses intent to end the conversation, "
-            "close the assistant, say goodbye, or stop Jarvis. "
+            "close the assistant, say goodbye, or stop ADHITHIYA. "
             "The user can say this in ANY language."
         ),
         "parameters": {
@@ -592,7 +610,7 @@ TOOL_DECLARATIONS = [
                     )
                 },
                 "key":   {"type": "STRING", "description": "Short snake_case key (e.g. name, favorite_food, sister_name)"},
-                "value": {"type": "STRING", "description": "Concise value in English (e.g. Fatih, pizza, older sister)"},
+                "value": {"type": "STRING", "description": "Concise value in English (e.g. Alex, pizza, older sister)"},
             },
             "required": ["category", "key", "value"]
         }
@@ -600,7 +618,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "project_agent",
         "description": (
-            "Opt-in local Agent Mode for the current project. Use it for a concrete "
+            "Project work on the current project. Use it for a concrete "
             "multi-step project plan, bounded file edits, and validated tests. "
             "Operations: plan, execute, test, status, or reset. Pass edits as path/content "
             "objects and commands/tests as lists. The local safety policy rejects "
@@ -647,6 +665,29 @@ TOOL_DECLARATIONS = [
             "required": [],
         },
     },
+    {
+        "name": "plugin_builder",
+        "description": (
+            "Write a NEW ability (plugin) for ADHITHIYA when no existing tool or "
+            "plugin can do what the user asks. Action 'build' drafts the plugin "
+            "(goal describes what it should do; name is optional), shows a preview, "
+            "and — only after the user explicitly confirms with confirmed=true — "
+            "installs it and makes it live immediately. Action 'list' shows the "
+            "abilities that were built; action 'remove' (confirmed=true) deletes "
+            "one ADHITHIYA built. Never install or remove without the user's "
+            "explicit confirmation."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "build | list | remove"},
+                "goal": {"type": "STRING", "description": "What the new ability should do, in one or two sentences."},
+                "name": {"type": "STRING", "description": "Optional snake_case name for the new ability."},
+                "confirmed": {"type": "BOOLEAN", "description": "Set true only after the user explicitly approved installing or removing."},
+            },
+            "required": ["action"],
+        },
+    },
 ]
 
 class JarvisLive:
@@ -683,12 +724,17 @@ class JarvisLive:
         # the first protected audio frame and is disabled by default so the
         # existing unrestricted Live mode remains the fallback.
         self._voice_gate = VoiceGate.from_config_path(API_CONFIG_PATH)
-        _agent_workspace = get_agent_workspace_root(BASE_DIR)
+        # Dedicated executor for blocking sounddevice writes so audio playback
+        # never has to wait behind slow tool calls on the shared default executor.
+        self._audio_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="audio"
+        )
+        _agent_workspace = get_agent_workspace_root(default_agent_workspace_root())
         _recovery_config = get_self_recovery_config()
         self._project_agent = ProjectAgent(
             workspace_root=_agent_workspace,
             project_root=BASE_DIR,
-            enabled=get_agent_mode_enabled(),
+            enabled=True,
             recovery=SelfRecovery(
                 _agent_workspace,
                 BASE_DIR,
@@ -703,18 +749,28 @@ class JarvisLive:
         )
 
         self._enhanced_live = True  # affective dialog + proactive audio; auto-disabled if the server rejects them
+        self._live_model   = DEFAULT_LIVE_MODEL   # overridden from config in _build_config()
+        self._voice_name   = DEFAULT_VOICE_NAME
+        self._prebuffer_ms    = DEFAULT_PREBUFFER_MS   # overridden from config in _build_config()
+        self._output_blocksize = OUTPUT_BLOCKSIZE
+        self._owner_name      = ""   # resolved in _build_config() (config → memory fallback)
+        # Self-learning: dedup + cooldown so a single problem is researched once
+        # per session instead of spamming searches in a retry loop.
+        self._learned_this_session: set[str] = set()
+        self._learn_cooldown_until = 0.0
         _core_names = {t["name"] for t in TOOL_DECLARATIONS}
         self._plugin_registry = discover_plugins(
-            plugins_dir=Path(__file__).resolve().parent / "plugins",
+            plugins_dir=get_base_dir() / "plugins",
             core_tool_names=_core_names,
             logger=lambda msg: (print(f"[Plugins] {msg}"), self.ui.write_log(f"SYS: {msg}")),
+            extra_dirs=[(USER_PLUGINS_DIR, USER_PLUGINS_PREFIX)],
         )
         self.ui.get_plugins = self._plugin_registry.list_for_ui
         self.ui.request_say = self.plugin_say   # plugins: mid-task speech channel
 
     def plugin_say(self, instruction: str) -> None:
         """
-        Thread-safe speech channel for plugins: lets a plugin ask JARVIS to
+        Thread-safe speech channel for plugins: lets a plugin ask ADHITHIYA to
         say something short WHILE its run() is still executing (plugins block
         their executor thread, so they can't speak through the tool response
         until they finish). The instruction is injected into the Live session
@@ -752,6 +808,64 @@ class JarvisLive:
         manual = self._dashboard.get_manual_url()
         return url, key, f"{url}/auto-login?key={key}", manual
 
+    def _maybe_learn(self, name: str, args: dict, error: object) -> None:
+        """
+        Self-learning: when a tool fails, research the fix online in the
+        background and remember it. On success the guidance is injected into the
+        Live session so ADHITHIYA can immediately explain and offer to retry.
+
+        Guarded by a per-session dedup set + cooldown so a retry loop can never
+        turn into a search storm. Fire-and-forget — never blocks the turn.
+        """
+        try:
+            now = time.monotonic()
+            if now < self._learn_cooldown_until:
+                return
+            key = f"{name}::{str(error)[:80]}"
+            if key in self._learned_this_session:
+                return
+            self._learned_this_session.add(key)
+            self._learn_cooldown_until = now + 20.0
+
+            loop = self._loop
+            if not loop:
+                return
+            self.ui.write_log(f"LEARN: '{name}' failed — researching how to fix it…")
+
+            async def _do():
+                try:
+                    guidance = await asyncio.to_thread(
+                        learn_from_failure, name, args, str(error)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[Learn] background research error: {exc}")
+                    return
+                if not guidance:
+                    self.ui.write_log(f"LEARN: nothing usable found for '{name}'.")
+                    return
+                self.ui.write_log(f"LEARN: fix remembered for '{name}'.")
+                if not self.session:
+                    return
+                try:
+                    await self.session.send_client_content(
+                        turns={"parts": [{
+                            "text": (
+                                f"[LEARNED] I researched the failed command "
+                                f"'{name}' and worked out how to do it correctly. "
+                                f"Guidance:\n{guidance[:800]}\n\n"
+                                "Briefly tell the user you found the solution, "
+                                "then offer to try again now that you know how."
+                            )
+                        }]},
+                        turn_complete=True,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[Learn] inject error: {exc}")
+
+            asyncio.run_coroutine_threadsafe(_do(), loop)
+        except Exception:  # noqa: BLE001 - learning is best-effort
+            pass
+
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
             return
@@ -768,8 +882,9 @@ class JarvisLive:
                 params = {"operation": "plan", "goal": stripped[12:].strip()}
 
             async def _run_local_agent():
-                self._project_agent.enabled = get_agent_mode_enabled()
+                self._project_agent.enabled = True
                 self._project_agent.recovery.enabled = get_self_recovery_config()["enabled"]
+                self._project_agent.workspace_root = get_agent_workspace_root(default_agent_workspace_root())
                 result = await asyncio.to_thread(self._project_agent.handle, params)
                 self.ui.write_log(f"[Agent] {result.as_text()}")
                 self.ui.show_agent_result(result)
@@ -790,7 +905,7 @@ class JarvisLive:
         )
 
     def _approve_pending_agent(self) -> None:
-        """Run the exact pending Agent Mode request from the UI approval button."""
+        """Run the exact pending project request from the UI approval button."""
         if not self._loop:
             return
         async def _approve():
@@ -805,7 +920,7 @@ class JarvisLive:
         asyncio.run_coroutine_threadsafe(_approve(), self._loop)
 
     def _reject_pending_agent(self) -> None:
-        """Discard the pending Agent Mode request without changing files."""
+        """Discard the pending project request without changing files."""
         if not self._loop:
             return
         async def _reject():
@@ -823,7 +938,7 @@ class JarvisLive:
             self.ui.set_state("LISTENING")
 
     def interrupt(self) -> None:
-        """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
+        """Stop ADHITHIYA mid-speech: drain queued audio and open mic immediately."""
         self._interrupted = True
         q = self.audio_in_queue
         if q:
@@ -835,7 +950,7 @@ class JarvisLive:
                 except Exception:
                     break
             if drained:
-                print(f"[JARVIS] ✋ Interrupted — {drained} audio chunks discarded")
+                print(f"[ADHITHIYA] ✋ Interrupted — {drained} audio chunks discarded")
         self.set_speaking(False)
         if self._turn_done_event:
             self._turn_done_event.clear()
@@ -866,14 +981,37 @@ class JarvisLive:
             self._asst_name = (_cfg.get("assistant_name") or DEFAULT_ASSISTANT_NAME).strip()
             _user_name = (_cfg.get("user_name") or "").strip()
             fast_response = bool(_cfg.get("fast_response", True))
+            self._live_model = str(_cfg.get("live_model") or DEFAULT_LIVE_MODEL).strip() or DEFAULT_LIVE_MODEL
+            self._voice_name = str(_cfg.get("voice_name") or DEFAULT_VOICE_NAME).strip() or DEFAULT_VOICE_NAME
+            try:
+                self._prebuffer_ms = max(0, min(1000, int(_cfg.get("audio_prebuffer_ms", DEFAULT_PREBUFFER_MS))))
+            except (TypeError, ValueError):
+                self._prebuffer_ms = DEFAULT_PREBUFFER_MS
+            try:
+                self._output_blocksize = max(0, min(4096, int(_cfg.get("audio_blocksize", OUTPUT_BLOCKSIZE))))
+            except (TypeError, ValueError):
+                self._output_blocksize = OUTPUT_BLOCKSIZE
         except Exception:
             self._asst_name = DEFAULT_ASSISTANT_NAME
             _user_name = ""
             fast_response = True
+            self._live_model = DEFAULT_LIVE_MODEL
+            self._voice_name = DEFAULT_VOICE_NAME
+            self._prebuffer_ms = DEFAULT_PREBUFFER_MS
+            self._output_blocksize = OUTPUT_BLOCKSIZE
 
         memory     = load_memory()
+        # The owner's name lives in config; if it was never set there, fall back
+        # to what ADHITHIYA learned in conversation (memory identity/name) so it
+        # keeps recognising the same person across sessions.
+        if not _user_name:
+            _mem_ident = memory.get("identity") or {}
+            _mem_name = _mem_ident.get("name") or {}
+            _mem_val = _mem_name.get("value") if isinstance(_mem_name, dict) else _mem_name
+            _user_name = str(_mem_val or "").strip()
         mem_str    = format_memory_for_prompt(memory)
         learning_str = format_learning_for_prompt(memory)
+        learned_str  = format_learned_for_prompt()
         sys_prompt = _load_system_prompt()
 
         now      = datetime.now()
@@ -885,22 +1023,47 @@ class JarvisLive:
         )
 
         # Identity injection — overrides any hardcoded name in prompt.txt
-        _addr = (f"ADDRESS: Always call the user '{_user_name}'."
-                 if _user_name
-                 else "ADDRESS: When speaking Turkish → always say \"efendim\". "
-                      "When speaking English → say \"sir\". Never mix languages.")
+        self._owner_name = _user_name
+        if _user_name:
+            _addr = (f"ADDRESS: The user is '{_user_name}' — your owner and primary "
+                     f"user. You know them personally; call them by name, warmly.")
+        else:
+            _addr = ("ADDRESS: You don't know the user's name yet. On your first "
+                     "greeting, ask what to call them; when they answer, save it with "
+                     "save_memory (category='identity', key='name'). Until then address "
+                     "them respectfully as \"sir\". Never mix languages.")
         identity_ctx = (
             f"[IDENTITY]\n"
             f"Your name is {self._asst_name}. "
             f"Always refer to yourself as {self._asst_name}.\n"
+            f"The person speaking to you is your owner. Recognise them as the same "
+            f"person across sessions — greet them personally, remember what they tell "
+            f"you about themselves, and never treat them like a stranger.\n"
             f"{_addr}\n\n"
         )
 
-        parts = [time_ctx, identity_ctx]
+        # One nature, no modes — ADHITHIYA is always this way. Decisive routine
+        # automation by default; confirmation is required only before
+        # irreversible or external actions.
+        nature_ctx = (
+            "[OPERATING NATURE]\n"
+            "You are always decisive: execute every routine task immediately — "
+            "open apps, search, control the computer, manage files, set "
+            "reminders — without asking. The ONLY times you pause for explicit "
+            "confirmation are irreversible or external actions: deleting files, "
+            "cleaning the desktop, sending messages, restarting, or shutting "
+            "down. State exactly what you will do, then call the tool with "
+            "confirmed=true only after the user confirms. Never treat silence "
+            "or an unrelated 'yes' as confirmation.\n\n"
+        )
+
+        parts = [time_ctx, identity_ctx, nature_ctx]
         if mem_str:
             parts.append(mem_str)
         if learning_str:
             parts.append(learning_str)
+        if learned_str:
+            parts.append(learned_str)
         parts.append(sys_prompt)
 
         cfg = dict(
@@ -911,21 +1074,21 @@ class JarvisLive:
             tools=[{"function_declarations": TOOL_DECLARATIONS + self._plugin_registry.get_tool_declarations()}],
             session_resumption=types.SessionResumptionConfig(),
             # Sliding-window compression: session never dies from a full context
-            # window — JARVIS can stay in one conversation for hours
+            # window — ADHITHIYA can stay in one conversation for hours
             context_window_compression=types.ContextWindowCompressionConfig(
                 sliding_window=types.SlidingWindow(),
             ),
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Charon"
+                        voice_name=self._voice_name
                     )
                 )
             ),
         )
         if self._enhanced_live and not fast_response:
-            # Affective dialog: JARVIS hears tone/emotion and adapts its voice.
-            # Proactive audio: JARVIS stays silent when speech isn't addressed
+            # Affective dialog: ADHITHIYA hears tone/emotion and adapts its voice.
+            # Proactive audio: ADHITHIYA stays silent when speech isn't addressed
             # to it (background chatter, talking to someone else in the room).
             cfg["enable_affective_dialog"] = True
             cfg["proactivity"] = types.ProactivityConfig(proactive_audio=True)
@@ -935,7 +1098,7 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[JARVIS] 🔧 {name}  {args}")
+        print(f"[ADHITHIYA] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
         if name == "save_memory":
@@ -1050,11 +1213,19 @@ class JarvisLive:
                 result = r or "Done."
 
             elif name == "project_agent":
-                self._project_agent.enabled = get_agent_mode_enabled()
+                self._project_agent.enabled = True
                 self._project_agent.recovery.enabled = get_self_recovery_config()["enabled"]
+                self._project_agent.workspace_root = get_agent_workspace_root(default_agent_workspace_root())
                 agent_result = await asyncio.to_thread(self._project_agent.handle, args)
                 self.ui.show_agent_result(agent_result)
                 result = agent_result.as_text()
+
+            elif name == "plugin_builder":
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: plugin_builder_run(args, self._plugin_registry, self.ui),
+                )
+                result = r or "Done."
 
             elif name == "web_search":
                 r = await loop.run_in_executor(None, lambda: web_search_action(parameters=args, player=self.ui))
@@ -1103,7 +1274,7 @@ class JarvisLive:
                 else:
                     result = "Specify action (add/remove/list) and a topic."
 
-            elif name == "shutdown_jarvis":
+            elif name == "shutdown_adhithiya":
                 self.ui.write_log("SYS: Shutdown requested.")
                 async def _do_shutdown():
                     await self._save_session_summary()
@@ -1116,8 +1287,8 @@ class JarvisLive:
                         except Exception:
                             pass
                     await asyncio.sleep(1.5)
-                    import os as _os
-                    _os._exit(0)
+                    self._audio_executor.shutdown(wait=False)
+                    self.ui.quit()
                 asyncio.create_task(_do_shutdown())
 
             else:
@@ -1127,9 +1298,8 @@ class JarvisLive:
                         lambda: self._plugin_registry.run(name, args, player=self.ui, session_memory=None)
                     )
                     result = r or "Done."
-                    self._project_agent.enabled = get_agent_mode_enabled()
                     self._project_agent.recovery.enabled = get_self_recovery_config()["enabled"]
-                    if self._project_agent.enabled and _plugin_failure_is_recoverable(name, args, result):
+                    if _plugin_failure_is_recoverable(name, args, result):
                         recovery = await asyncio.to_thread(
                             self._project_agent.recover_tool_failure,
                             name,
@@ -1153,15 +1323,19 @@ class JarvisLive:
             traceback.print_exc()
             self.speak_error(name, e)
             record_tool_outcome(name, False)
+            self._maybe_learn(name, args, e)
         else:
-            record_tool_outcome(name, not str(result).lower().startswith(
+            ok = not str(result).lower().startswith(
                 ("could not", "error", "failed", "unknown", "please confirm")
-            ))
+            )
+            record_tool_outcome(name, ok)
+            if not ok:
+                self._maybe_learn(name, args, result)
 
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 
-        print(f"[JARVIS] 📤 {name} → {str(result)[:80]}")
+        print(f"[ADHITHIYA] 📤 {name} → {str(result)[:80]}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result}
@@ -1194,13 +1368,13 @@ class JarvisLive:
             await self.session.send_realtime_input(media=msg)
 
     async def _listen_audio(self):
-        print("[JARVIS] 🎤 Mic started")
+        print("[ADHITHIYA] 🎤 Mic started")
         loop = asyncio.get_event_loop()
 
         def callback(indata, frames, time_info, status):
             with self._speaking_lock:
-                jarvis_speaking = self._is_speaking
-            if not jarvis_speaking and not self.ui.muted and not self._phone_active:
+                assistant_speaking = self._is_speaking
+            if not assistant_speaking and not self.ui.muted and not self._phone_active:
                 data = indata.tobytes()
                 try:
                     decision = self._voice_gate.process_audio(data)
@@ -1214,6 +1388,10 @@ class JarvisLive:
                     )
                 if decision and decision.message:
                     loop.call_soon_threadsafe(self._on_voice_gate_notice, decision.message)
+                if decision and decision.state == "verified":
+                    # "It's me" — the enrolled owner's voice matched.
+                    _who = f"it's you, {self._owner_name}" if self._owner_name else "it's you"
+                    loop.call_soon_threadsafe(self._on_voice_gate_notice, f"Voice matched — {_who}.")
                 if decision and decision.accepted:
                     loop.call_soon_threadsafe(
                         _enqueue_input_audio,
@@ -1248,11 +1426,11 @@ class JarvisLive:
                 device=getattr(self.ui, "audio_input_device", None),
                 callback=callback,
             ):
-                print("[JARVIS] 🎤 Mic stream open")
+                print("[ADHITHIYA] 🎤 Mic stream open")
                 while True:
                     await asyncio.sleep(0.1)
         except Exception as e:
-            print(f"[JARVIS] ❌ Mic: {e}")
+            print(f"[ADHITHIYA] ❌ Mic: {e}")
             raise
 
     def _on_voice_gate_notice(self, message: str) -> None:
@@ -1260,7 +1438,7 @@ class JarvisLive:
         self.ui.write_log(f"VOICE: {message}")
 
     async def _receive_audio(self):
-        print("[JARVIS] 👂 Recv started")
+        print("[ADHITHIYA] 👂 Recv started")
         out_buf, in_buf = [], []
 
         try:
@@ -1276,6 +1454,13 @@ class JarvisLive:
                             # Split into ~50 ms chunks so interrupt() stops audio within 50 ms
                             # (24000 Hz × 2 bytes/sample × 0.05 s = 2400 bytes per slice)
                             _audio_data = response.data
+                            # Relay the voice answer to connected phones too, so
+                            # ADHITHIYA "lives" on both devices — you hear it on
+                            # the Mac AND the phone, whichever you're using.
+                            if self._dashboard and self._dashboard.has_clients():
+                                asyncio.create_task(
+                                    self._dashboard.broadcast_audio(_audio_data)
+                                )
                             _SLICE = 2400
                             for _i in range(0, len(_audio_data), _SLICE):
                                 try:
@@ -1338,7 +1523,7 @@ class JarvisLive:
                                 self._session_log.append(f"{self._asst_name}: {full_out}")
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({
-                                        "type": "log", "speaker": "jarvis",
+                                        "type": "log", "speaker": "adhithiya",
                                         "text": full_out,
                                         "ts": datetime.now().isoformat(),
                                     }))
@@ -1360,7 +1545,7 @@ class JarvisLive:
                                 )
                                 # Mark next turn_complete behaviour depending on angle
                                 if self._vision_cam_active:
-                                    # Camera: keep busy until JARVIS finishes speaking the answer
+                                    # Camera: keep busy until ADHITHIYA finishes speaking the answer
                                     self._vision_cam_active    = False
                                     self._vision_close_pending = True
                                 else:
@@ -1378,28 +1563,36 @@ class JarvisLive:
                     if response.tool_call:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
-                            print(f"[JARVIS] 📞 {fc.name}")
+                            print(f"[ADHITHIYA] 📞 {fc.name}")
                             fr = await self._execute_tool(fc)
                             fn_responses.append(fr)
                         await self.session.send_tool_response(
                             function_responses=fn_responses
                         )
         except Exception as e:
-            print(f"[JARVIS] ❌ Recv: {e}")
+            print(f"[ADHITHIYA] ❌ Recv: {e}")
             traceback.print_exc()
             raise
 
     async def _play_audio(self):
-        print("[JARVIS] 🔊 Play started")
+        print("[ADHITHIYA] 🔊 Play started")
 
+        # Explicit small output buffer + low-latency hint: a forced large block
+        # or a big default device buffer adds avoidable delay before speech
+        # reaches the speakers.
         stream = sd.RawOutputStream(
             samplerate=RECEIVE_SAMPLE_RATE,
             channels=CHANNELS,
             dtype="int16",
-            blocksize=CHUNK_SIZE,
+            blocksize=self._output_blocksize,
             latency="low",
         )
         stream.start()
+
+        # Jitter cushion: before each turn's first write we hold until a little
+        # audio has buffered, so a bursty network can't cause underruns/stutter.
+        prebuffer = max(0, int(RECEIVE_SAMPLE_RATE * 2 * self._prebuffer_ms / 1000))
+        warm = False   # cushion built for the current turn?
 
         try:
             while True:
@@ -1416,26 +1609,43 @@ class JarvisLive:
                     ):
                         self.set_speaking(False)
                         self._turn_done_event.clear()
+                        warm = False   # next turn re-buffers its own cushion
                     continue
 
                 self.set_speaking(True)
 
                 # Batch all immediately-available chunks into one write to reduce
-                # thread-pool round-trips (was one asyncio.to_thread per 50ms slice).
-                # Cap at ~50 ms so thread-pool round-trips stay bounded.
+                # thread-pool round-trips. Cap at ~100 ms: big enough to cut
+                # scheduling overhead, small enough to keep interrupt snappy.
                 batch = bytearray(chunk)
-                while len(batch) < 2400:   # 2400 bytes ≈ 50 ms at 24 kHz / 16-bit mono
+                while len(batch) < MAX_BATCH_BYTES:
                     try:
                         batch.extend(self.audio_in_queue.get_nowait())
                     except asyncio.QueueEmpty:
                         break
 
+                # Build the jitter cushion on the first audio of each turn.
+                if not warm and prebuffer and len(batch) < prebuffer:
+                    loop = asyncio.get_running_loop()
+                    deadline = loop.time() + min(self._prebuffer_ms / 1000, 0.25)
+                    while len(batch) < prebuffer and loop.time() < deadline:
+                        try:
+                            nxt = await asyncio.wait_for(
+                                self.audio_in_queue.get(), timeout=0.02
+                            )
+                            batch.extend(nxt)
+                        except asyncio.TimeoutError:
+                            pass
+                    warm = True
+
                 try:
-                    await asyncio.to_thread(stream.write, bytes(batch))
+                    await asyncio.get_event_loop().run_in_executor(
+                        self._audio_executor, stream.write, bytes(batch)
+                    )
                 except (RuntimeError, asyncio.CancelledError):
                     break   # executor shutting down — exit cleanly
         except Exception as e:
-            print(f"[JARVIS] ❌ Play: {e}")
+            print(f"[ADHITHIYA] ❌ Play: {e}")
             raise
         finally:
             self.set_speaking(False)
@@ -1633,7 +1843,7 @@ class JarvisLive:
         await asyncio.sleep(300)          # wait 5 min after startup before first check
         while True:
             if self.session:
-                # Don't interrupt if user spoke recently or JARVIS is mid-sentence
+                # Don't interrupt if user spoke recently or ADHITHIYA is mid-sentence
                 with self._speaking_lock:
                     speaking = self._is_speaking
                 recent_speech = (time.monotonic() - self._last_user_speech) < 30
@@ -1783,7 +1993,7 @@ class JarvisLive:
 
         while True:
             try:
-                print("[JARVIS] Connecting...")
+                print("[ADHITHIYA] Connecting...")
                 self.ui.set_state("THINKING")
                 config = self._build_config()
                 voice_status = self._voice_gate.status()
@@ -1805,7 +2015,7 @@ class JarvisLive:
                 )
 
                 async with (
-                    client.aio.live.connect(model=LIVE_MODEL, config=config) as session,
+                    client.aio.live.connect(model=self._live_model, config=config) as session,
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session          = session
@@ -1821,9 +2031,9 @@ class JarvisLive:
                     self._vision_last_time     = 0.0
                     self._interrupted          = False
 
-                    print("[JARVIS] Connected.")
+                    print("[ADHITHIYA] Connected.")
                     self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: JARVIS online.")
+                    self.ui.write_log("SYS: ADHITHIYA online.")
 
                     if self._dashboard:
                         await self._dashboard.broadcast({"type": "status", "state": "active"})
@@ -1854,7 +2064,7 @@ class JarvisLive:
                 # exception escape the while-loop and causing asyncio.run() to
                 # start shutdown — resulting in "executor after shutdown" errors).
                 err_str = str(e)
-                print(f"[JARVIS] Error ({type(e).__name__}): {e}")
+                print(f"[ADHITHIYA] Error ({type(e).__name__}): {e}")
                 traceback.print_exc()
 
                 # Enhanced audio features rejected by the server (preview API
@@ -1879,7 +2089,7 @@ class JarvisLive:
                     self.ui.prompt_reconfig()
                     while not self.ui._win._ready:
                         await asyncio.sleep(1)
-                    print("[JARVIS] New API key saved — reconnecting...")
+                    print("[ADHITHIYA] New API key saved — reconnecting...")
                     _conn_backoff = 3
                     continue
 
@@ -1892,8 +2102,8 @@ class JarvisLive:
                     _conn_backoff = min(getattr(self, "_conn_backoff", 3) * 2, 60)
                     self._conn_backoff = _conn_backoff
                     self.ui.write_log(
-                        f"NET: Bağlantı kurulamadı — {_conn_backoff}s sonra tekrar deneniyor. "
-                        "(VPN gerekiyor olabilir)"
+                        f"NET: Could not connect — retrying in {_conn_backoff}s. "
+                        "(A VPN may be required.)"
                     )
                 else:
                     self._conn_backoff = 3
@@ -1910,17 +2120,19 @@ class JarvisLive:
                 await self._dashboard.broadcast({"type": "status", "state": "sleeping"})
 
             delay = getattr(self, "_conn_backoff", 3)
-            print(f"[JARVIS] Reconnecting in {delay}s...")
+            print(f"[ADHITHIYA] Reconnecting in {delay}s...")
             await asyncio.sleep(delay)
 
 def main():
-    ui = JarvisUI("face.png")
+    # face.png sits next to the source in dev and inside the bundle when frozen
+    face_path = BASE_DIR / "face.png"
+    ui = JarvisUI(str(face_path))
 
     def runner():
         ui.wait_for_api_key()
-        jarvis = JarvisLive(ui)
+        assistant = JarvisLive(ui)
         try:
-            asyncio.run(jarvis.run())
+            asyncio.run(assistant.run())
         except KeyboardInterrupt:
             print("\n🔴 Shutting down...")
 

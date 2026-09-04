@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  ADHITHIYA — dependencies pinned for macOS 12 (Monterey) and older
+#
+#  Why this file exists: the latest releases of a few packages now require
+#  macOS 13+, which breaks `pip install -r requirements.txt` on macOS 12.7.6.
+#  These pins are the newest versions that still ship macOS 12-compatible
+#  wheels (both Intel and Apple Silicon).
+#
+#  Use Python 3.11 or 3.12 (recommended) — older wheels have no Python 3.13
+#  binaries, which forces a source build and fails.
+# ─────────────────────────────────────────────────────────────────────────────
+
+PyQt6==6.7.1              # Qt 6.7 — last line built for macOS 12 (Monterey)
+numpy==1.26.4             # last numpy with macOS 12 wheels (opencv 4.9 needs <2.0)
+opencv-python==4.9.0.80   # last opencv that installs cleanly on macOS 12
+
+sounddevice
+google-genai>=2.8.0
+google-generativeai
+pillow
+requests
+beautifulsoup4
+ddgs>=9.0.0
+playwright
+pyautogui
+pyperclip
+pygetwindow
+mss
+psutil
+send2trash
+youtube-transcript-api
+python-pptx
+fastapi
+uvicorn[standard]
+cryptography
+python-multipart
+qrcode[pil]

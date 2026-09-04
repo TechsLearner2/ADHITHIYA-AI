@@ -1,7 +1,7 @@
 import subprocess
 import time
 
-# 1. METADATA SCHEMA FOR JARVIS
+# 1. METADATA SCHEMA FOR ADHITHIYA
 PLUGIN = {
     "name": "soduto_control",
     "description": "Controls phone integration features via Soduto status menu on macOS.",
@@ -49,7 +49,7 @@ def _navigate_soduto(down_count):
 # 2. EXECUTION LOGIC
 def run(action):
     try:
-        # If Jarvis passes a dictionary e.g. {'action': 'ring_phone'}, unpack it
+        # If the assistant passes a dictionary e.g. {'action': 'ring_phone'}, unpack it
         if isinstance(action, dict):
             action = action.get("action", "")
 

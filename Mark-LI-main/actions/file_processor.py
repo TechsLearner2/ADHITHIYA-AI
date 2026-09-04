@@ -1,5 +1,5 @@
 """
-file_processor.py — JARVIS Universal File Processor
+file_processor.py — ADHITHIYA Universal File Processor
 
 Supported types:
   image   → describe, ocr, resize, convert, compress, crop
@@ -26,7 +26,11 @@ from pathlib import Path
 from datetime import datetime
 
 def _get_api_key() -> str:
-    config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
+    try:
+        from memory.config_manager import get_data_dir
+        config_path = get_data_dir() / "config" / "api_keys.json"
+    except Exception:
+        config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 

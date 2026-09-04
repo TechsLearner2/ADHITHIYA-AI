@@ -1,14 +1,14 @@
 """
-JARVIS plugin — Pomodoro focus timer.
+ADHITHIYA plugin — Pomodoro focus timer.
 
 Runs the classic Pomodoro technique entirely in the background: a focus
 block (default 25 min), then a short break (default 5 min), with a longer
-break after every 4th focus block. When each phase ends JARVIS *speaks* —
+break after every 4th focus block. When each phase ends ADHITHIYA *speaks* —
 "time for a break", "back to work" — through the live speech channel, so
 the user never has to watch a clock.
 
 Every completed focus block is logged to memory/pomodoro_state.json, so the
-user can ask "how much have I focused today?" and JARVIS remembers across
+user can ask "how much have I focused today?" and ADHITHIYA remembers across
 sessions — the kind of small, persistent detail Gemini alone can't keep.
 
 Pure Python, no third-party dependency, works on every OS and in every
@@ -131,7 +131,7 @@ def _panel(player, title: str, text: str) -> None:
 
 
 def _say(player, instruction: str) -> None:
-    """Ask JARVIS to speak (thread-safe; phrased in the user's language)."""
+    """Ask ADHITHIYA to speak (thread-safe; phrased in the user's language)."""
     if player and hasattr(player, "request_say"):
         try:
             player.request_say(instruction)
@@ -152,7 +152,7 @@ def _bar(frac: float, width: int = 18) -> str:
 
 
 def _remember_focus() -> None:
-    """Overwrite a single rolling memory note with today's focus total, so JARVIS
+    """Overwrite a single rolling memory note with today's focus total, so ADHITHIYA
     can answer 'how much did I focus' in a later conversation. One fixed key →
     it replaces the previous value instead of piling up (memory never bloats)."""
     try:
@@ -202,7 +202,7 @@ def _worker(player, stop: threading.Event) -> None:
         while not stop.is_set():
             wmin = _state["work_min"]
             task = _state["task"]
-            _log(player, f"JARVIS: Focus block started — {wmin} min.")
+            _log(player, f"ADHITHIYA: Focus block started — {wmin} min.")
             if not _run_phase(player, stop, "work", wmin, task):
                 break  # stopped mid-focus → not counted
 

@@ -2,7 +2,11 @@
 import json, os, platform
 from pathlib import Path
 
-_CONFIG_PATH = Path(__file__).parent / "api_keys.json"
+try:
+    from memory.config_manager import get_data_dir
+    _CONFIG_PATH = get_data_dir() / "config" / "api_keys.json"
+except Exception:
+    _CONFIG_PATH = Path(__file__).parent / "api_keys.json"
 
 def _platform_os() -> str:
     """Auto-detect OS when config file is absent."""

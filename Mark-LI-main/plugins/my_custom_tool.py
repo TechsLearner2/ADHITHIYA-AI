@@ -26,7 +26,7 @@ PLUGIN = {
     }
 }
 
-# 2. EXECUTION LOGIC: Runs when Jarvis calls the tool
+# 2. EXECUTION LOGIC: Runs when the assistant calls the tool
 def run(action, volume_level=None, setting_pane=None):
     """
     Executes native macOS Monterey commands based on Gemini's parsed intent.

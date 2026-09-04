@@ -27,7 +27,7 @@ def log(player, message: str) -> None:
     if not callable(writer):
         return
     try:
-        writer(f"JARVIS: {message}")
+        writer(f"ADHITHIYA: {message}")
     except (AttributeError, TypeError, RuntimeError, OSError):
         return
 

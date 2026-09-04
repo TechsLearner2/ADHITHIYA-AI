@@ -12,13 +12,18 @@ import webbrowser
 from pathlib import Path
 from typing import Optional
 
-from playwright.async_api import (
-    async_playwright,
-    BrowserContext,
-    Page,
-    Playwright,
-    TimeoutError as PlaywrightTimeout,
-)
+try:
+    from playwright.async_api import (
+        async_playwright,
+        BrowserContext,
+        Page,
+        Playwright,
+        TimeoutError as PlaywrightTimeout,
+    )
+    _PLAYWRIGHT_OK = True
+except Exception as _e:  # noqa: F841 — Playwright is optional; app must still boot
+    _PLAYWRIGHT_OK = False
+    _PLAYWRIGHT_ERR = str(_e)
 _OS = platform.system()   # "Windows" | "Darwin" | "Linux"
 
 def _normalize_url(url: str) -> str:
@@ -547,7 +552,7 @@ class _BrowserSession:
             try:
                 self._context = await engine_obj.launch_persistent_context(profile, **kwargs)
             except Exception as e:
-                print(f"[Browser] Firefox real profile failed ({e}), using JARVIS profile")
+                print(f"[Browser] Firefox real profile failed ({e}), using ADHITHIYA profile")
                 jarvis = str(Path.home() / ".jarvis_profiles" / "firefox_jarvis")
                 Path(jarvis).mkdir(parents=True, exist_ok=True)
                 self._context = await engine_obj.launch_persistent_context(jarvis, **kwargs)
@@ -609,16 +614,16 @@ class _BrowserSession:
 
         # Gerçek profil açılamadı (tarayıcı zaten açık / kilitli profil / yeni
         # Chrome sürümleri otomasyonla gerçek profili engelliyor). Kalıcı
-        # JARVIS otomasyon profiline geçilir — buraya bir kez giriş yapılan
+        # ADHITHIYA otomasyon profiline geçilir — buraya bir kez giriş yapılan
         # hesaplar sonraki oturumlarda da açık kalır.
         jarvis_profile = str(Path.home() / ".jarvis_profiles" / self.browser_name)
         Path(jarvis_profile).mkdir(parents=True, exist_ok=True)
-        print(f"[Browser] Retrying with JARVIS profile: {jarvis_profile}")
+        print(f"[Browser] Retrying with ADHITHIYA profile: {jarvis_profile}")
 
         try:
             self._context = await engine_obj.launch_persistent_context(jarvis_profile, **kwargs)
             self._page = await self._adopt_page()
-            print(f"[Browser] ✅ Launched [{label}] with JARVIS profile "
+            print(f"[Browser] ✅ Launched [{label}] with ADHITHIYA profile "
                   f"(sign-ins persist across sessions)")
         except Exception as e2:
             raise RuntimeError(f"Could not launch {self.browser_name}: {e2}") from e2
@@ -805,7 +810,7 @@ class _BrowserSession:
     async def screenshot(self, path: str = None) -> str:
         page = await self._get_page()
         try:
-            save_path = path or str(Path.home() / "Desktop" / "jarvis_screenshot.png")
+            save_path = path or str(Path.home() / "Desktop" / "adhithiya_screenshot.png")
             await page.screenshot(path=save_path, full_page=False)
             return f"Screenshot saved: {save_path}"
         except Exception as e:
@@ -933,6 +938,14 @@ def browser_control(
     action  = params.get("action", "").lower().strip()
     browser = params.get("browser", "").lower().strip() or None
     result  = "Unknown action."
+
+    # Native open/search still works without Playwright; automation actions
+    # degrade to a clear hint instead of crashing the whole app.
+    if not _PLAYWRIGHT_OK and action not in ("go_to", "search", "new_tab", "switch", "list_browsers", "close", "close_all"):
+        result = ("Browser automation is unavailable (Playwright is not installed). "
+                  "Install it with: pip install playwright && python -m playwright install")
+        _log(player, result)
+        return result
 
     if action == "switch":
         target = browser or params.get("target", "").lower().strip()

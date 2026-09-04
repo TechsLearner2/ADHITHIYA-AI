@@ -282,7 +282,7 @@ def _wake_model_path(config: VoiceGateConfig) -> Path | None:
         import openwakeword
 
         aliases = {
-            "HEY JARVIS": "hey_jarvis",
+            "HEY ADHITHIYA": "hey_jarvis",
             "HEY MYCROFT": "hey_mycroft",
             "HEY RHASSPY": "hey_rhasspy",
             "ALEXA": "alexa",

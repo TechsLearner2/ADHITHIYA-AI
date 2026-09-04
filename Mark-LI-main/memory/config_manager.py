@@ -4,11 +4,26 @@ from pathlib import Path
 
 def get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
+        # PyInstaller: bundled data lives in sys._MEIPASS (the app bundle's
+        # internal dir), not next to the executable.
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     return Path(__file__).resolve().parent.parent
 
+def get_data_dir() -> Path:
+    """User-writable directory for config and state.
+
+    In a frozen .app the bundle is read-only, so writable data lives in
+    ~/.adhithiya. In a normal source run this is the repo root — behaviour
+    is unchanged from before.
+    """
+    if getattr(sys, "frozen", False):
+        data_dir = Path.home() / ".adhithiya"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
+    return get_base_dir()
+
 BASE_DIR    = get_base_dir()
-CONFIG_DIR  = BASE_DIR / "config"
+CONFIG_DIR  = get_data_dir() / "config"
 CONFIG_FILE = CONFIG_DIR / "api_keys.json"
 DEFAULT_ASSISTANT_NAME = "ADHITHIYA"
 DEFAULT_WAKE_WORD = "ADHITHIYA"
@@ -169,12 +184,32 @@ def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
 
 
 def get_agent_mode_enabled() -> bool:
-    """Return whether the local, project-scoped Agent Mode is opted in."""
+    """Project agent is always available by default (no opt-in "mode").
+
+    Kept as a small helper so an explicit opt-out in config is still honoured,
+    but the default is enabled — project work is part of ADHITHIYA's nature.
+    """
     data = load_api_keys()
     config = data.get("agent_mode", {}) if isinstance(data, dict) else {}
     if isinstance(config, dict):
-        return bool(config.get("enabled", False))
-    return bool(data.get("agent_mode_enabled", False)) if isinstance(data, dict) else False
+        return bool(config.get("enabled", True))
+    return bool(data.get("agent_mode_enabled", True)) if isinstance(data, dict) else True
+
+
+def default_agent_workspace_root() -> Path:
+    """A sensible workspace when the user hasn't chosen one: their home folder.
+
+    The safety boundary requires the workspace to contain the app itself, so a
+    home-folder default lets the agent work on any of the user's projects while
+    still being contained and approval-gated.
+    """
+    try:
+        home = Path.home().expanduser().resolve()
+        if home.is_dir():
+            return home
+    except (OSError, RuntimeError):
+        pass
+    return BASE_DIR
 
 
 def get_agent_workspace_root(default: Path | None = None) -> Path:

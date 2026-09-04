@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from memory.config_manager import DEFAULT_ASSISTANT_NAME
+from memory.config_manager import DEFAULT_ASSISTANT_NAME, get_data_dir
 
 import psutil
 
@@ -37,11 +37,11 @@ from PyQt6.QtWidgets import (
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     return Path(__file__).resolve().parent
 
 BASE_DIR   = _base_dir()
-CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR = get_data_dir() / "config"
 API_FILE   = CONFIG_DIR / "api_keys.json"
 
 
@@ -369,7 +369,10 @@ class HudCanvas(QWidget):
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
-        self._tmr.start(16)
+        # 30 fps (not 60): the HUD is decorative — halving its paint load frees
+        # CPU for the audio pipeline, which keeps voice playback smooth on
+        # slower Macs. Visually indistinguishable for the arc-reactor effect.
+        self._tmr.start(33)
 
     def _load_face(self, path: str):
         try:
@@ -707,7 +710,7 @@ class LogWidget(QTextEdit):
         tl = self._text.lower()
         _ai_pfx = f"{self._ai_name_lc}:"
         if   tl.startswith("you:"):                              self._tag = "you"
-        elif tl.startswith(_ai_pfx) or tl.startswith("jarvis:"): self._tag = "ai"
+        elif tl.startswith(_ai_pfx) or tl.startswith("adhithiya:"): self._tag = "ai"
         elif tl.startswith("file:"):                             self._tag = "file"
         elif "err" in tl:                                        self._tag = "err"
         else:                                                    self._tag = "sys"
@@ -833,7 +836,7 @@ class FileDropZone(QWidget):
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select a file for JARVIS", str(Path.home()),
+            self, "Select a file for ADHITHIYA", str(Path.home()),
             "All Files (*.*);;"
             "Images (*.jpg *.jpeg *.png *.gif *.webp *.bmp *.svg);;"
             "Documents (*.pdf *.docx *.txt *.md *.pptx);;"
@@ -1055,7 +1058,7 @@ class SetupOverlay(QWidget):
             return w
 
         layout.addWidget(_lbl("◈  INITIALISATION REQUIRED", 13, True))
-        layout.addWidget(_lbl("Configure J.A.R.V.I.S. before first boot.", 9, color=C.PRI_DIM))
+        layout.addWidget(_lbl("Configure ADHITHIYA. before first boot.", 9, color=C.PRI_DIM))
         layout.addSpacing(6)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
@@ -1288,7 +1291,7 @@ class CustomizeOverlay(QWidget):
         lay.addWidget(self._name_input)
 
         lay.addSpacing(4)
-        lay.addWidget(_lbl("YOUR NAME  (leave blank for default sir / efendim)", 8,
+        lay.addWidget(_lbl("YOUR NAME  (leave blank for default 'sir')", 8,
                             color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignLeft))
         self._user_input = QLineEdit(user_name)
         self._user_input.setPlaceholderText("e.g.  Tony   (leave blank for auto)")
@@ -1526,7 +1529,7 @@ class PluginManagerOverlay(QWidget):
 
 
 class ClipboardPanel(QWidget):
-    """Floating panel shown when text is copied — offers quick Jarvis actions."""
+    """Floating panel shown when text is copied — offers quick assistant actions."""
 
     action_requested = pyqtSignal(str)
     _W, _H = 326, 112
@@ -1802,7 +1805,7 @@ class RemoteKeyOverlay(QWidget):
         self._qr_label.setStyleSheet(
             "color: #00ff88; background: #001a0d; border-radius: 10px;"
         )
-        self._timer_lbl.setText("Phone connected — JARVIS ready")
+        self._timer_lbl.setText("Phone connected — ADHITHIYA ready")
         self._timer_lbl.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
 
     def _refresh_key(self):
@@ -2118,6 +2121,7 @@ class MainWindow(QMainWindow):
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
     _agent_result_sig = pyqtSignal(object)
     _agent_progress_sig = pyqtSignal(str)
+    _quit_sig = pyqtSignal()
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -2133,7 +2137,7 @@ class MainWindow(QMainWindow):
         if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR:
             apply_ui_accent(_ui_color)
 
-        self.setWindowTitle(f"{_display} — MARK LI")
+        self.setWindowTitle(f"{_display} — AI ASSISTANT")
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -2145,7 +2149,7 @@ class MainWindow(QMainWindow):
 
         self.on_text_command   = None
         self.on_remote_clicked = None   # callable: () -> (url, key) | None
-        self.on_interrupt      = None   # callable: () -> None — stop JARVIS mid-speech
+        self.on_interrupt      = None   # callable: () -> None — stop ADHITHIYA mid-speech
         self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
         self._muted            = False
         self._current_file: str | None = None
@@ -2272,6 +2276,7 @@ class MainWindow(QMainWindow):
         self._clipboard_sig.connect(self._show_clipboard_panel)
         self._agent_result_sig.connect(self._show_agent_result)
         self._agent_progress_sig.connect(self._append_agent_progress)
+        self._quit_sig.connect(self._quit_from_tray)
         self._cam_stop = threading.Event()
 
         # Camera preview overlay (child of central widget, positioned in resizeEvent)
@@ -2373,9 +2378,9 @@ class MainWindow(QMainWindow):
     # Icon generation — arc-reactor style, rendered with Pillow
     # ------------------------------------------------------------------
     @staticmethod
-    def _build_jarvis_icon(out_path: Path) -> bool:
+    def _build_icon(out_path: Path) -> bool:
         """
-        Render a JARVIS arc-reactor icon at 4× resolution and downsample
+        Render an ADHITHIYA arc-reactor icon at 4× resolution and downsample
         for crisp results at all sizes. Saves a multi-res .ico to out_path.
         Returns True on success.
         """
@@ -2488,7 +2493,7 @@ class MainWindow(QMainWindow):
             sc.TargetPath       = target
             sc.Arguments        = f'"{args}"'
             sc.WorkingDirectory = work_dir
-            sc.Description      = "J.A.R.V.I.S AI Assistant"
+            sc.Description      = "ADHITHIYA AI Assistant"
             sc.IconLocation     = icon_loc
             sc.save()
             return
@@ -2503,7 +2508,7 @@ class MainWindow(QMainWindow):
             f'sc.TargetPath = "{target}"',
             f'sc.Arguments = Chr(34) & "{args}" & Chr(34)',
             f'sc.WorkingDirectory = "{work_dir}"',
-            'sc.Description = "J.A.R.V.I.S AI Assistant"',
+            'sc.Description = "ADHITHIYA AI Assistant"',
             f'sc.IconLocation = "{icon_loc}"',
             'sc.Save',
         ])
@@ -2615,9 +2620,9 @@ class MainWindow(QMainWindow):
         desktop = self._get_desktop_dir()
 
         # Arc-reactor icon (.ico — also exported as .png for Linux/macOS)
-        ico_path = Path(__file__).resolve().parent / "config" / "jarvis.ico"
+        ico_path = Path(__file__).resolve().parent / "config" / "adhithiya.ico"
         if not ico_path.exists():
-            self._build_jarvis_icon(ico_path)
+            self._build_icon(ico_path)
 
         try:
             _os = platform.system()
@@ -2633,20 +2638,66 @@ class MainWindow(QMainWindow):
 
             # ── macOS — proper .app bundle (no Terminal window) ───────────────
             elif _os == "Darwin":
-                app     = desktop / "ADHITHIYA.app"
+                import shutil as _shutil
+                app = desktop / "ADHITHIYA.app"
+
+                def _shq(p) -> str:
+                    """Shell-quote a path for embedding in the launcher script."""
+                    return '"' + str(p).replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+                # ── Frozen build: shortcut points at the real app bundle ──────
+                if getattr(sys, "frozen", False):
+                    bundle = Path(sys.executable).resolve()
+                    # sys.executable → …/ADHITHIYA.app/Contents/MacOS/ADHITHIYA
+                    if bundle.name == "ADHITHIYA":
+                        bundle = bundle.parent.parent
+                    if bundle.suffix == ".app" and bundle.exists():
+                        if app.exists() or app.is_symlink():
+                            try:
+                                app.unlink()
+                            except OSError:
+                                _shutil.rmtree(app, ignore_errors=True)
+                        try:
+                            app.symlink_to(bundle)
+                        except OSError:
+                            _shutil.copytree(bundle, app)
+                        self._log.append_log(f"SYS: Desktop shortcut created → {app}")
+                        return
+
+                # ── Source run: build a launcher .app with a fallback chain ───
+                app_dir = script.parent
+                log_file = Path.home() / ".adhithiya" / "shortcut.log"
+                # Prefer the project's own venv; fall back to the interpreter
+                # that was running when the shortcut was created. Failures are
+                # written to ~/.adhithiya/shortcut.log instead of dying silently.
+                launcher_text = (
+                    "#!/bin/bash\n"
+                    f'APP_DIR={_shq(app_dir)}\n'
+                    f'LOG={_shq(log_file)}\n'
+                    'mkdir -p "$HOME/.adhithiya" 2>/dev/null\n'
+                    'cd "$APP_DIR" 2>/dev/null || { echo "$(date): app folder not found: $APP_DIR" >> "$LOG"; exit 1; }\n'
+                    'if [ -x "$APP_DIR/.venv/bin/python" ]; then\n'
+                    '  exec "$APP_DIR/.venv/bin/python" "$APP_DIR/main.py" >> "$LOG" 2>&1\n'
+                    'elif [ -x "$APP_DIR/.venv-build/bin/python" ]; then\n'
+                    '  exec "$APP_DIR/.venv-build/bin/python" "$APP_DIR/main.py" >> "$LOG" 2>&1\n'
+                    'else\n'
+                    f'  exec {_shq(python)} {_shq(app_dir / "main.py")} >> "$LOG" 2>&1\n'
+                    'fi\n'
+                )
+
+                if app.exists() or app.is_symlink():
+                    _shutil.rmtree(app, ignore_errors=True)
+                    try:
+                        app.unlink()
+                    except OSError:
+                        pass
                 mac_dir = app / "Contents" / "MacOS"
                 res_dir = app / "Contents" / "Resources"
                 mac_dir.mkdir(parents=True, exist_ok=True)
                 res_dir.mkdir(exist_ok=True)
 
-                # Launcher executable (bash — runs as background process,
-                # macOS does NOT open Terminal for executables inside .app bundles)
                 launcher = mac_dir / "ADHITHIYA"
-                launcher.write_text(
-                    "#!/usr/bin/env bash\n"
-                    f'cd "{script.parent}"\n'
-                    f'exec "{python}" "{script}"\n'
-                )
+                launcher.write_text(launcher_text, encoding="utf-8")
                 launcher.chmod(launcher.stat().st_mode
                                | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
 
@@ -2670,7 +2721,6 @@ class MainWindow(QMainWindow):
                     import PIL.Image
                     icns = res_dir / "AppIcon.icns"
                     PIL.Image.open(ico_path).save(icns, format="ICNS")
-                    # Inject icon reference into plist
                     plist = app / "Contents" / "Info.plist"
                     txt = plist.read_text()
                     plist.write_text(
@@ -2682,6 +2732,23 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     pass  # icon is optional
+
+                # Register with LaunchServices so Finder recognises the bundle
+                # and double-click resolves immediately (fixes flaky first click).
+                try:
+                    subprocess.run(
+                        ["/System/Library/Frameworks/CoreServices.framework/"
+                         "Frameworks/LaunchServices.framework/Support/lsregister",
+                         "-f", str(app)],
+                        check=False, timeout=15,
+                    )
+                except Exception:
+                    pass
+
+                self._log.append_log(
+                    f"SYS: Desktop shortcut created → {app}. "
+                    "First open: right-click → Open."
+                )
 
             # ── Linux — .desktop file (Terminal=false, no console) ────────────
             else:
@@ -2785,10 +2852,12 @@ class MainWindow(QMainWindow):
         self._tray = None
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
-        icon_path = CONFIG_DIR / "jarvis.ico"
+        icon_path = BASE_DIR / "config" / "adhithiya.ico"
+        if not icon_path.exists():
+            icon_path = CONFIG_DIR / "adhithiya.ico"
         icon = QIcon(str(icon_path)) if icon_path.exists() else self.windowIcon()
         self._tray = QSystemTrayIcon(icon, self)
-        self._tray.setToolTip(f"{self._assistant_name} — MARK LI")
+        self._tray.setToolTip(f"{self._assistant_name} — AI ASSISTANT")
         menu = QMenu(self)
         self._tray_toggle = QAction("Show window", self)
         self._tray_toggle.triggered.connect(self._toggle_window)
@@ -2913,7 +2982,7 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {color}; background: transparent;")
             return l
 
-        lay.addWidget(_badge("MARK LI", C.PRI_DIM))
+        lay.addWidget(_badge(self._assistant_name.upper(), C.PRI_DIM))
         lay.addSpacing(8)
         self._drawer_btn = QPushButton("⚙")
         self._drawer_btn.setFixedSize(26, 26)
@@ -2940,9 +3009,7 @@ class MainWindow(QMainWindow):
         self._title_lbl.setFont(QFont("Courier New", 17, QFont.Weight.Bold))
         self._title_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         mid.addWidget(self._title_lbl)
-        _sub_text = ("Just A Rather Very Intelligent System"
-                     if _disp in ("JARVIS", "J.A.R.V.I.S")
-                     else "Personal AI Assistant")
+        _sub_text = "Personal AI Assistant"
         self._sub_lbl = QLabel(_sub_text)
         self._sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._sub_lbl.setFont(QFont("Courier New", 7))
@@ -3028,7 +3095,7 @@ class MainWindow(QMainWindow):
         for txt, col in [
             ("AI CORE\nACTIVE",  C.GREEN),
             ("SEC\nCLEARED",     C.PRI),
-            ("PROTOCOL\nXLIX",   C.TEXT_DIM),
+            ("PROTOCOL\nLI",   C.TEXT_DIM),
         ]:
             lbl = QLabel(txt)
             lbl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
@@ -3212,10 +3279,11 @@ class MainWindow(QMainWindow):
         plugin_btn.clicked.connect(self._open_plugin_manager)
         lay.addWidget(plugin_btn)
 
-        agent_hdr = QLabel("▸ AGENT MODE")
-        agent_hdr.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-        agent_hdr.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
-        lay.addWidget(agent_hdr)
+        pending_hdr = QLabel("▸ PENDING ACTION")
+        pending_hdr.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        pending_hdr.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        lay.addWidget(pending_hdr)
+
         self._agent_state_lbl = QLabel("IDLE — no pending action")
         self._agent_state_lbl.setWordWrap(True)
         self._agent_state_lbl.setFont(QFont("Courier New", 7))
@@ -3437,7 +3505,7 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(_fl("[F4] Mute  ·  [F11] Fullscreen"))
         lay.addStretch()
-        lay.addWidget(_fl("By FatihMakes", C.PRI_DIM))
+        lay.addWidget(_fl("Local-first · Gemini Live", C.PRI_DIM))
         return w
 
     def _on_file_selected(self, path: str):
@@ -3500,7 +3568,7 @@ class MainWindow(QMainWindow):
                 key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                     r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ)
                 try:
-                    winreg.QueryValueEx(key, "JARVIS_AI")
+                    winreg.QueryValueEx(key, "ADHITHIYA_AI")
                     return True
                 except FileNotFoundError:
                     return False
@@ -3512,7 +3580,7 @@ class MainWindow(QMainWindow):
                     "com.adhithiya.assistant.plist", "com.jarvis.assistant.plist"
                 ))
             else:
-                return (Path.home() / ".config" / "autostart" / "jarvis.desktop").exists()
+                return (Path.home() / ".config" / "autostart" / "adhithiya.desktop").exists()
         except Exception:
             return False
 
@@ -3525,11 +3593,11 @@ class MainWindow(QMainWindow):
                 reg = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                     r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
                 if currently_on:
-                    winreg.DeleteValue(reg, "JARVIS_AI")
+                    winreg.DeleteValue(reg, "ADHITHIYA_AI")
                 else:
                     pythonw = Path(sys.executable).parent / "pythonw.exe"
                     exe = str(pythonw if pythonw.exists() else sys.executable)
-                    winreg.SetValueEx(reg, "JARVIS_AI", 0, winreg.REG_SZ,
+                    winreg.SetValueEx(reg, "ADHITHIYA_AI", 0, winreg.REG_SZ,
                                       f'"{exe}" "{script}"')
                 winreg.CloseKey(reg)
             elif _OS == "Darwin":
@@ -3556,7 +3624,7 @@ class MainWindow(QMainWindow):
             else:
                 desk_dir = Path.home() / ".config" / "autostart"
                 desk_dir.mkdir(parents=True, exist_ok=True)
-                desk = desk_dir / "jarvis.desktop"
+                desk = desk_dir / "adhithiya.desktop"
                 if currently_on:
                     desk.unlink(missing_ok=True)
                 else:
@@ -3663,12 +3731,9 @@ class MainWindow(QMainWindow):
         """Update all name/theme-dependent UI elements and persist to config."""
         self._assistant_name = name.strip() or DEFAULT_ASSISTANT_NAME
         display = self._assistant_name.upper()
-        self.setWindowTitle(f"{display} — MARK LI")
+        self.setWindowTitle(f"{display} — AI ASSISTANT")
         self._title_lbl.setText(display)
-        if display in ("JARVIS", "J.A.R.V.I.S", DEFAULT_ASSISTANT_NAME):
-            self._sub_lbl.setText("Just A Rather Very Intelligent System")
-        else:
-            self._sub_lbl.setText("Personal AI Assistant")
+        self._sub_lbl.setText("Personal AI Assistant")
         self._log._ai_name_lc = self._assistant_name.lower()
         self.hud._assistant_name = display
 
@@ -3960,3 +4025,7 @@ class JarvisUI:
     def stop_speaking(self):
         if not self.muted:
             self.set_state("LISTENING")
+
+    def quit(self) -> None:
+        """Thread-safe: exit the application (used for graceful shutdown)."""
+        self._win._quit_sig.emit()

@@ -1,9 +1,9 @@
 """
-JARVIS plugin — Excel writer (voice → real .xlsx).
+ADHITHIYA plugin — Excel writer (voice → real .xlsx).
 
 The user describes a spreadsheet in plain speech — "make me a table of my
 five expenses this week with a total", "bana 12 aylık satış tablosu ve bir
-grafik oluştur" — and JARVIS produces a genuine .xlsx on the Desktop:
+grafik oluştur" — and ADHITHIYA produces a genuine .xlsx on the Desktop:
 bold headers, typed cells, an optional SUM total row, and an optional
 chart. Gemini turns the request into a structured spec; openpyxl builds
 the file. That last step is the whole point — Gemini can describe a table

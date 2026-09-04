@@ -29,7 +29,7 @@ COMMAND_INDEX = {
 
 def run(target):
     try:
-        # Unpack target if Jarvis passes a dictionary
+        # Unpack target if the assistant passes a dictionary
         if isinstance(target, dict):
             target = target.get("target", "")
 

@@ -343,10 +343,10 @@ class _VisionSession:
                     if transcript and self._player:
                         full = re.sub(r"\s+", " ", " ".join(transcript)).strip()
                         if full:
-                            self._player.write_log(f"Jarvis: {full}")
+                            self._player.write_log(f"ADHITHIYA: {full}")
                             print(f"[Vision] 💬 {full}")
                     transcript = []
-                    # Auto-close camera ~2s after JARVIS finishes speaking
+                    # Auto-close camera ~2s after ADHITHIYA finishes speaking
                     if self._player and hasattr(self._player, "stop_camera_stream"):
                         async def _deferred_close():
                             await asyncio.sleep(2.0)

@@ -1,5 +1,5 @@
 """
-dashboard/server.py — JARVIS Local HTTP Dashboard
+dashboard/server.py — ADHITHIYA Local HTTP Dashboard
 
 Plain HTTP on port 8000 (no SSL warnings, no firewall issues).
 Security at the application layer: AES-256-CBC with session-key-derived key.
@@ -15,8 +15,15 @@ import re
 import secrets
 import socket
 import string
+import sys
 import time
 from pathlib import Path
+
+try:
+    from memory.config_manager import get_data_dir
+    _DATA_DIR = get_data_dir()
+except Exception:
+    _DATA_DIR = Path(__file__).resolve().parent.parent
 
 _DEPS_OK = False
 try:
@@ -35,8 +42,13 @@ try:
 except Exception:
     pass
 
-BASE_DIR    = Path(__file__).resolve().parent.parent
-STATIC_DIR  = Path(__file__).parent / "static"
+# Writable data (config, certs, uploads fallback) lives outside the bundle.
+BASE_DIR = _DATA_DIR
+# Read-only assets (the web UI) are bundled next to the executable when frozen.
+if getattr(sys, "frozen", False):
+    STATIC_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "dashboard" / "static"
+else:
+    STATIC_DIR = Path(__file__).parent / "static"
 PORT        = 8000
 MAX_UPLOAD_MB = 500
 
@@ -44,8 +56,8 @@ MAX_UPLOAD_MB = 500
 def _make_uploads_dir() -> Path:
     """Return (and create) the cross-platform uploads folder."""
     for candidate in [
-        Path.home() / "Downloads" / "JARVIS Uploads",
-        Path.home() / "Documents" / "JARVIS Uploads",
+        Path.home() / "Downloads" / "ADHITHIYA Uploads",
+        Path.home() / "Documents" / "ADHITHIYA Uploads",
         BASE_DIR / "uploads",
     ]:
         try:
@@ -70,7 +82,7 @@ _KEY_CHARS = [c for c in (string.ascii_uppercase + string.digits)
               if c not in ('O', 'I', 'L', '0', '1')]
 
 # ── AES-256-CBC ───────────────────────────────────────────────────────────────
-_AES_SALT = b'JARVIS-DASHBOARD-v1'
+_AES_SALT = b'ADHITHIYA-DASHBOARD-v1'
 
 
 def _derive_key(session_key: str) -> bytes:
@@ -112,8 +124,8 @@ def _ensure_network_access(port: int) -> None:
     if sys.platform == "win32":
         import ctypes, time
 
-        port_rule = f"JARVIS Dashboard Port {port}"
-        prog_rule  = "JARVIS Dashboard Python"
+        port_rule = f"ADHITHIYA Dashboard Port {port}"
+        prog_rule  = "ADHITHIYA Dashboard Python"
         py_exe     = sys.executable
 
         def _netsh_rule_exists(name: str) -> bool:
@@ -217,7 +229,7 @@ def _ensure_network_access(port: int) -> None:
                 print("[Dashboard] Refresh your phone browser to connect.")
             else:
                 print("[Dashboard] Setup was not allowed.")
-                print("[Dashboard] Phone connections may fail until JARVIS is run as Administrator.")
+                print("[Dashboard] Phone connections may fail until ADHITHIYA is run as Administrator.")
         except Exception as e:
             print(f"[Dashboard] Firewall setup error: {e}")
         finally:
@@ -396,8 +408,8 @@ def _ensure_certs() -> bool:
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
         who = x509.Name([
-            x509.NameAttribute(NameOID.COMMON_NAME, "JARVIS Dashboard"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "JARVIS"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "ADHITHIYA Dashboard"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "ADHITHIYA"),
         ])
 
         # The SAN has to cover every address the phone might use: the LAN IP the
@@ -533,6 +545,32 @@ class DashboardServer:
                 dead.add(ws)
         self._clients -= dead
 
+    def has_clients(self) -> bool:
+        """True when at least one phone/browser is connected."""
+        return bool(self._clients)
+
+    async def broadcast_audio(self, pcm: bytes) -> None:
+        """
+        Relay a chunk of the assistant's spoken answer (16-bit/24 kHz mono PCM)
+        to every connected phone so the voice plays on both devices. Not added
+        to _history — audio is transient and would bloat the replay buffer.
+        """
+        if not self._clients:
+            return
+        msg = {
+            "type": "audio",
+            "rate": 24000,
+            "channels": 1,
+            "data": base64.b64encode(pcm).decode("ascii"),
+        }
+        dead: set[WebSocket] = set()
+        for ws in list(self._clients):
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                dead.add(ws)
+        self._clients -= dead
+
     # ── FastAPI app ───────────────────────────────────────────────────────
 
     def _build_app(self) -> "FastAPI":
@@ -599,7 +637,7 @@ class DashboardServer:
   h2{color:#f87171;margin-bottom:12px}p{color:#5e6a7e;font-size:14px}
 </style></head>
 <body><div><h2>Link Expired</h2>
-<p>Press <strong style="color:#dde3ed">Remote Control</strong> in JARVIS to get a new QR code.</p>
+<p>Press <strong style="color:#dde3ed">Remote Control</strong> in ADHITHIYA to get a new QR code.</p>
 </div></body></html>""")
 
             del self._pending_keys[key]
@@ -630,7 +668,7 @@ class DashboardServer:
   localStorage.setItem('jarvis_device_token','{dev_tok}');
   setTimeout(function(){{location.replace('/')}},400);
 </script>
-<p>Connecting to JARVIS…</p>
+<p>Connecting to ADHITHIYA…</p>
 </body></html>""")
 
         @app.post("/api/device-login")
@@ -880,5 +918,5 @@ class DashboardServer:
 
         proto = "https" if use_ssl else "http"
         print(f"[Dashboard] {proto}://{self._ip}:{PORT}")
-        print("[Dashboard] Press 'Remote Control' in JARVIS UI to get the QR code.")
+        print("[Dashboard] Press 'Remote Control' in ADHITHIYA UI to get the QR code.")
         await uvicorn.Server(cfg).serve()
