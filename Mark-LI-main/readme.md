@@ -12,6 +12,10 @@ swapping is a one-line config change.
   `gpt-oss-20b` / `kimi-k2`), `whisper-large-v3-turbo` speech-to-text, an
   **Orpheus** voice for speech (falls back to your Mac's `say`), and a **Qwen**
   vision model for "look at my screen" (preview — see the note below).
+
+  > **One-time step:** the Orpheus voice needs you to accept its terms once at
+  > [console.groq.com/playground?model=canopylabs%2Forpheus-v1-english](https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english)
+  > — otherwise ADHITHIYA speaks with your Mac's voice (everything else works).
 - **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
   `gpt-image-1` image generation (creating images still needs OpenAI).
 

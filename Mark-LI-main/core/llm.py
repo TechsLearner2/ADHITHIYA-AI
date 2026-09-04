@@ -34,6 +34,14 @@ import json
 
 from memory.config_manager import load_api_keys
 
+# Imported once here, on the main thread, so later calls from mic/worker/dashboard
+# threads never race on the package's submodule import locks (which previously
+# caused "deadlock detected by _ModuleLock('openai.resources.chat')").
+try:
+    from openai import OpenAI as _OpenAI
+except Exception:  # noqa: BLE001 — openai is optional at import time (tests stub _client)
+    _OpenAI = None
+
 # ── defaults ──────────────────────────────────────────────────────────────────
 
 DEFAULT_CHAT_MODEL   = "gpt-4o-mini"
@@ -66,6 +74,7 @@ GROQ_VISION_MODEL    = "qwen/qwen3.6-27b"
 GROQ_VISION_FALLBACK = "qwen/qwen3.8-27b"
 
 _CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}
+_ORPHEUS_DISABLED: bool = False   # set once Orpheus rejects us (terms/plan)
 
 
 def _cfg():
@@ -140,13 +149,14 @@ def _model_unavailable(err: Exception) -> bool:
     no access, or a billing/quota wall. In any of these cases it's worth trying
     the next candidate model instead of failing the whole turn."""
     code = getattr(err, "status_code", None) or getattr(err, "code", None)
-    if code in (401, 402, 403, 404):
+    if code in (401, 402, 403, 404, 413, 429):
         return True
     text = str(err).lower()
     return any(k in text for k in (
         "model_not_found", "does not exist", "no longer",
         "not allowed", "no access", "access denied", "quota",
         "insufficient", "balance", "billing", "not available", "unavailable",
+        "rate_limit", "too large", "terms",
     ))
 
 
@@ -173,11 +183,13 @@ def _stt_models() -> list[str]:
 
 
 def _client():
-    from openai import OpenAI
+    cls = _OpenAI
+    if cls is None:
+        from openai import OpenAI as cls
     kwargs = {"api_key": get_api_key(), "max_retries": 2, "timeout": 60.0}
     if provider() == "groq":
         kwargs["base_url"] = GROQ_BASE_URL
-    return OpenAI(**kwargs)
+    return cls(**kwargs)
 
 
 # ── chat ──────────────────────────────────────────────────────────────────────
@@ -329,12 +341,19 @@ def transcribe_wav(wav_bytes: bytes) -> str:
 
 def tts_wav(text: str) -> bytes:
     """Synthesise text as a WAV file (PCM). Raises on failure."""
+    global _ORPHEUS_DISABLED
     if provider() == "groq":
-        try:
-            return _orpheus_tts(text)
-        except Exception as e:  # noqa: BLE001
-            print(f"[TTS] Orpheus failed ({e}); falling back to macOS 'say'.")
-            return _say_tts(text)
+        if not _ORPHEUS_DISABLED:
+            try:
+                return _orpheus_tts(text)
+            except Exception as e:  # noqa: BLE001
+                if "terms" in str(e).lower():
+                    _ORPHEUS_DISABLED = True
+                    print("[TTS] Orpheus needs one-time terms acceptance at "
+                          "console.groq.com — using the Mac voice for now.")
+                else:
+                    print(f"[TTS] Orpheus failed ({e}); falling back to macOS 'say'.")
+        return _say_tts(text)
     client = _client()
     try:
         resp = client.audio.speech.create(
@@ -537,15 +556,24 @@ _TYPE_MAP = {
 }
 
 
+def _clip(text: str, limit: int) -> str:
+    """Truncate long descriptions — keeps schemas small enough for the free
+    Groq tier's per-request token budget without losing the callable meaning."""
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
 def _convert_schema(schema: dict) -> dict:
     out = {}
     t = schema.get("type")
     if t:
         mapped = _TYPE_MAP.get(str(t).upper(), str(t).lower())
         out["type"] = mapped
-    desc = schema.get("description")
-    if desc:
-        out["description"] = str(desc)
+    # Parameter descriptions are intentionally NOT emitted: the 46 tools'
+    # JSON schemas alone were ~8.7k tokens (over Groq's free 8k/min budget).
+    # The tool-level description + parameter NAMES carry the calling info.
     props = schema.get("properties")
     if isinstance(props, dict):
         out["properties"] = {k: _convert_schema(v) for k, v in props.items()}
@@ -570,7 +598,7 @@ def to_openai_tools(declarations: list[dict]) -> list[dict]:
             "type": "function",
             "function": {
                 "name": decl.get("name", ""),
-                "description": decl.get("description", ""),
+                "description": _clip(decl.get("description", ""), 160),
                 "parameters": _convert_schema(params),
             },
         })

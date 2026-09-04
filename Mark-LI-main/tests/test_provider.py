@@ -88,6 +88,37 @@ def test_concat_wavs_joins_two():
         assert w.getnframes() == 4
 
 
+def test_tool_schemas_stay_under_groq_budget():
+    """Regression guard: the full tool list must stay small enough for Groq's
+    free-tier ~8k tokens/min budget (was ~8.7k tokens before compaction)."""
+    import json
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "main.py"
+    text = src.read_text(encoding="utf-8")
+    m = re.search(r"TOOL_DECLARATIONS = \[(.*?)\n\]", text, re.S)
+    assert m, "TOOL_DECLARATIONS not found"
+    ns = {}
+    exec("TOOL_DECLARATIONS = [" + m.group(1) + "\n]", ns)
+    core_decls = ns["TOOL_DECLARATIONS"]
+
+    from core.plugin_loader import discover_plugins
+    core_names = {t["name"] for t in core_decls}
+    reg = discover_plugins(plugins_dir=Path(__file__).resolve().parent.parent / "plugins",
+                           core_tool_names=core_names, logger=lambda m: None, extra_dirs=[])
+    tools = llm.to_openai_tools(core_decls + reg.get_tool_declarations())
+    total_chars = len(json.dumps(tools))
+    # ~55k chars would be ~8.7k tokens; we keep well under that now.
+    assert total_chars < 30000, f"tool schemas bloated: {total_chars} chars"
+
+    # Parameter descriptions must be dropped (that's what kept us under budget).
+    for t in tools:
+        for prop in t["function"]["parameters"].get("properties", {}).values():
+            assert "description" not in prop, f"param description leaked on {t['function']['name']}"
+
+
+
 
 class _NotFound(Exception):
     status_code = 404

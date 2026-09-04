@@ -1019,9 +1019,9 @@ class AdhithiyaAssistant:
             _mem_name = _mem_ident.get("name") or {}
             _mem_val = _mem_name.get("value") if isinstance(_mem_name, dict) else _mem_name
             _user_name = str(_mem_val or "").strip()
-        mem_str    = format_memory_for_prompt(memory)
-        learning_str = format_learning_for_prompt(memory)
-        learned_str  = format_learned_for_prompt()
+        mem_str    = format_memory_for_prompt(memory)[:1200]
+        learning_str = format_learning_for_prompt(memory)[:800]
+        learned_str  = format_learned_for_prompt()[:800]
         sys_prompt = _load_system_prompt()
 
         now      = datetime.now()
@@ -1542,7 +1542,7 @@ class AdhithiyaAssistant:
 
         system_prompt = await asyncio.to_thread(self._build_system_prompt)
         self._chat_history.append({"role": "user", "content": user_text})
-        messages = [{"role": "system", "content": system_prompt}] + list(self._chat_history[-30:])
+        messages = [{"role": "system", "content": system_prompt}] + list(self._chat_history[-10:])
         tools = self._openai_tools()
 
         for _ in range(8):
