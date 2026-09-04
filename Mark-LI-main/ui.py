@@ -53,6 +53,15 @@ def _read_full_config() -> dict:
         return {}
 
 
+def _active_provider() -> str:
+    """Which AI provider is active: 'groq' (free default) or 'openai'."""
+    try:
+        from core.llm import provider
+        return provider()
+    except Exception:
+        return "groq"
+
+
 _DEFAULT_W, _DEFAULT_H = 980, 700
 _MIN_W,     _MIN_H     = 820, 580
 _LEFT_W  = 148
@@ -1065,11 +1074,14 @@ class SetupOverlay(QWidget):
         sep.setStyleSheet(f"color: {C.BORDER};"); layout.addWidget(sep)
         layout.addSpacing(4)
 
-        layout.addWidget(_lbl("OPENAI API KEY", 8, color=C.TEXT_DIM,
+        _prov = _active_provider()
+        _key_label = "GROQ API KEY" if _prov == "groq" else "OPENAI API KEY"
+        _placeholder = "gsk-…" if _prov == "groq" else "sk-…"
+        layout.addWidget(_lbl(_key_label, 8, color=C.TEXT_DIM,
                                align=Qt.AlignmentFlag.AlignLeft))
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._key_input.setPlaceholderText("sk-…")
+        self._key_input.setPlaceholderText(_placeholder)
         self._key_input.setFont(QFont("Courier New", 10))
         self._key_input.setFixedHeight(32)
         self._key_input.setStyleSheet(f"""
@@ -3856,7 +3868,7 @@ class MainWindow(QMainWindow):
         if not API_FILE.exists(): return False
         try:
             d = json.loads(API_FILE.read_text(encoding="utf-8"))
-            key = d.get("openai_api_key") or d.get("gemini_api_key")
+            key = d.get("groq_api_key") or d.get("openai_api_key")
             return bool(key) and bool(d.get("os_system"))
         except Exception:
             return False
@@ -3877,10 +3889,13 @@ class MainWindow(QMainWindow):
     def _on_setup_done(self, key: str, os_name: str):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         existing = _read_full_config()
+        _prov = _active_provider()
+        _key_field = "groq_api_key" if _prov == "groq" else "openai_api_key"
         API_FILE.write_text(
             json.dumps({
                 **existing,
-                "openai_api_key": key,
+                "provider": _prov,
+                _key_field: key,
                 "os_system": os_name,
                 "assistant_name": existing.get("assistant_name", DEFAULT_ASSISTANT_NAME),
             }, indent=4),

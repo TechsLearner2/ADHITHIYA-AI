@@ -257,7 +257,7 @@ def _start(parameters: dict, player) -> str:
             )
         api_key = _api_key()
         if not api_key:
-            return "No OpenAI API key is configured, so I can't transcribe class audio."
+            return "No API key is configured, so I can't transcribe class audio."
 
         topic = str(parameters.get("topic") or "Class").strip()
         NOTES_DIR.mkdir(parents=True, exist_ok=True)

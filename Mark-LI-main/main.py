@@ -132,8 +132,8 @@ def _get_api_key() -> str:
     key = get_api_key()
     if not key:
         raise RuntimeError(
-            "config/api_keys.json is missing the 'openai_api_key' field — "
-            "run the app once and enter your OpenAI API key."
+            "config/api_keys.json is missing an API key — run the app once and "
+            "enter your key (free Groq key from console.groq.com, or an OpenAI key)."
         )
     return key
 
@@ -1521,7 +1521,7 @@ class AdhithiyaAssistant:
     async def _chat_turn(self, user_text: str, log_as_user: bool = True) -> str:
         """Run one conversation turn: LLM + tool loop (+ vision). Returns the
         final text answer to speak."""
-        from core.llm import chat
+        from core.llm import chat, provider
         user_text = (user_text or "").strip()
         if not user_text:
             return ""
@@ -1549,6 +1549,9 @@ class AdhithiyaAssistant:
                 answer = resp.get("text", "").strip()
                 if answer:
                     self._chat_history.append({"role": "assistant", "content": answer})
+                if self._vision_cam_active:
+                    self._vision_cam_active = False
+                    self.ui.stop_camera_stream()
                 return answer
 
             tool_results = []
@@ -1581,12 +1584,20 @@ class AdhithiyaAssistant:
             if self._pending_vision:
                 img_b, mime_t, question, angle = self._pending_vision
                 self._pending_vision = None
+                self._vision_busy = False
+                if self._vision_cam_active:
+                    self._vision_cam_active = False
+                    self.ui.stop_camera_stream()
+                if provider() == "groq":
+                    answer = ("I can't look at your screen or camera on the free "
+                              "provider — image vision needs a paid provider like OpenAI.")
+                    self._chat_history.append({"role": "assistant", "content": answer})
+                    return answer
                 print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle})")
                 messages.append({"role": "user", "content": [
                     {"type": "text", "text": question or "What do you see?"},
                     {"type": "image_url", "image_url": {"url": self._image_data_url(img_b, mime_t)}},
                 ]})
-                self._vision_busy = False
 
         return "I couldn't complete that task."
 

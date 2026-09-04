@@ -39,7 +39,7 @@ def ensure_config_dir() -> None:
 def config_exists() -> bool:
     return CONFIG_FILE.exists()
 
-def save_api_keys(openai_api_key: str) -> None:
+def save_api_keys(api_key: str, provider: str = "groq") -> None:
     ensure_config_dir()
 
     data: dict = {}
@@ -49,7 +49,9 @@ def save_api_keys(openai_api_key: str) -> None:
         except Exception:
             data = {}
 
-    data["openai_api_key"] = openai_api_key.strip()
+    field = "groq_api_key" if str(provider).strip().lower() == "groq" else "openai_api_key"
+    data["provider"] = str(provider).strip().lower()
+    data[field] = api_key.strip()
 
     CONFIG_FILE.write_text(
         json.dumps(data, indent=2),
@@ -68,9 +70,15 @@ def load_api_keys() -> dict:
 def get_openai_key() -> str | None:
     return load_api_keys().get("openai_api_key")
 
+
+def get_groq_key() -> str | None:
+    return load_api_keys().get("groq_api_key")
+
+
 def is_configured() -> bool:
-    key = get_openai_key()
-    return bool(key and len(key) > 15)
+    data = load_api_keys()
+    key = data.get("groq_api_key") or data.get("openai_api_key")
+    return bool(key and len(str(key)) > 15)
 
 
 def get_assistant_name() -> str:

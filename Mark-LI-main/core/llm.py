@@ -1,17 +1,27 @@
 """LLM provider layer — the single door to the AI brain.
 
-Every AI call in ADHITHIYA goes through here. The default backend is OpenAI
-(GPT-4o-mini chat, Whisper STT, OpenAI TTS, gpt-image-1). Switching providers
-later means changing *this one file* — nothing else in the codebase knows which
-provider is in use.
+Every AI call in ADHITHIYA goes through here. Two providers sit behind one
+interface; switching is a one-line config change, never a code rewrite.
+
+    provider = "groq"   (default — FREE, no credit card)
+        chat  → llama-3.3-70b-versatile   (free tier)
+        STT   → whisper-large-v3-turbo    (free tier)
+        TTS   → the Mac's built-in `say` voice (free, offline)
+        image → not available on Groq (vision/image need OpenAI)
+
+    provider = "openai" (paid)
+        chat  → gpt-4o-mini · STT → whisper-1 · TTS → gpt-4o-mini-tts
+        image → gpt-image-1 (falls back to dall-e-3)
 
 Config (config/api_keys.json):
-    openai_api_key   — required
-    chat_model       — default "gpt-4o-mini"
-    tts_model        — default "gpt-4o-mini-tts" (falls back to "tts-1")
-    tts_voice        — default "alloy" (alloy | echo | fable | onyx | nova | shimmer | coral | sage | ash | ballad)
-    stt_model        — default "whisper-1"
-    image_model      — default "gpt-image-1" (falls back to "dall-e-3")
+    provider         — "groq" (default) or "openai"
+    groq_api_key     — free key from console.groq.com        (provider=groq)
+    openai_api_key   — key from platform.openai.com          (provider=openai)
+    chat_model       — optional override (per-provider default otherwise)
+    stt_model        — optional override
+    say_voice        — macOS voice name for Groq speech (e.g. "Samantha")
+    tts_voice        — OpenAI speaking voice (provider=openai), default "alloy"
+    image_model      — OpenAI image model (default "gpt-image-1")
     temperature      — optional, default 0.7
 """
 
@@ -32,6 +42,11 @@ DEFAULT_IMAGE_MODEL  = "gpt-image-1"
 IMAGE_FALLBACK       = "dall-e-3"
 TTS_FALLBACK         = "tts-1"
 
+DEFAULT_PROVIDER     = "groq"
+GROQ_BASE_URL        = "https://api.groq.com/openai/v1"
+GROQ_CHAT_MODEL      = "llama-3.3-70b-versatile"
+GROQ_STT_MODEL       = "whisper-large-v3-turbo"
+
 _CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}
 
 
@@ -43,19 +58,37 @@ def _cfg():
 
 
 def get_api_key() -> str:
-    """The OpenAI key. Also accepts a legacy 'gemini_api_key' field during
-    migration so existing config files keep working until the user updates."""
+    """The active provider's key. Reads groq_api_key or openai_api_key
+    (provider-aware), so switching providers never needs new plumbing."""
     data = _cfg()
-    key = str(data.get("openai_api_key") or data.get("gemini_api_key") or "").strip()
-    return key
+    if provider() == "groq":
+        key = data.get("groq_api_key") or data.get("openai_api_key")
+    else:
+        key = data.get("openai_api_key") or data.get("groq_api_key")
+    return str(key or "").strip()
 
 
 def model(name: str) -> str:
     return str(_cfg().get(name, "") or "").strip()
 
 
+def provider() -> str:
+    """Which backend is active: 'groq' (free default) or 'openai'."""
+    data = _cfg()
+    p = str(data.get("provider") or "").strip().lower()
+    if p in {"groq", "openai"}:
+        return p
+    # Auto-detect: an OpenAI key (and no Groq key) → openai; otherwise groq.
+    if data.get("openai_api_key") and not data.get("groq_api_key"):
+        return "openai"
+    return DEFAULT_PROVIDER
+
+
 def chat_model() -> str:
-    return model("chat_model") or DEFAULT_CHAT_MODEL
+    override = model("chat_model")
+    if override:
+        return override
+    return GROQ_CHAT_MODEL if provider() == "groq" else DEFAULT_CHAT_MODEL
 
 
 def tts_model() -> str:
@@ -67,7 +100,10 @@ def tts_voice() -> str:
 
 
 def stt_model() -> str:
-    return model("stt_model") or DEFAULT_STT_MODEL
+    override = model("stt_model")
+    if override:
+        return override
+    return GROQ_STT_MODEL if provider() == "groq" else DEFAULT_STT_MODEL
 
 
 def image_model() -> str:
@@ -83,7 +119,10 @@ def temperature() -> float:
 
 def _client():
     from openai import OpenAI
-    return OpenAI(api_key=get_api_key(), max_retries=2, timeout=60.0)
+    kwargs = {"api_key": get_api_key(), "max_retries": 2, "timeout": 60.0}
+    if provider() == "groq":
+        kwargs["base_url"] = GROQ_BASE_URL
+    return OpenAI(**kwargs)
 
 
 # ── chat ──────────────────────────────────────────────────────────────────────
@@ -125,6 +164,9 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
 
 def chat_with_image(prompt: str, image_bytes: bytes, mime: str = "image/png") -> str:
     """Ask a vision-capable model about an image. Returns its text answer."""
+    if provider() == "groq":
+        return ("This provider can't look at images — Groq has no vision model. "
+                "Screen/camera vision and photo analysis need provider='openai' (paid).")
     b64 = base64.b64encode(image_bytes).decode("ascii")
     content = [
         {"type": "text", "text": prompt},
@@ -205,6 +247,8 @@ def transcribe_wav(wav_bytes: bytes) -> str:
 
 def tts_wav(text: str) -> bytes:
     """Synthesise text as a WAV file (PCM). Raises on failure."""
+    if provider() == "groq":
+        return _say_tts(text)
     client = _client()
     try:
         resp = client.audio.speech.create(
@@ -226,10 +270,55 @@ def tts_wav(text: str) -> bytes:
     return bytes(data)
 
 
+def _say_tts(text: str) -> bytes:
+    """macOS built-in 'say' voice → WAV bytes (free, offline). Raises on failure."""
+    import os
+    import subprocess
+    import tempfile
+
+    voice = model("say_voice")
+    with tempfile.TemporaryDirectory() as d:
+        wav = os.path.join(d, "out.wav")
+        aiff = os.path.join(d, "out.aiff")
+
+        # Preferred: straight to WAV (macOS honours --file-format/--data-format).
+        cmd = ["say", "-o", wav, "--file-format=WAVE", "--data-format=LEI16@24000"]
+        if voice:
+            cmd = ["say", "-v", voice, "-o", wav, "--file-format=WAVE", "--data-format=LEI16@24000"]
+        cmd.append(text)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+            if os.path.getsize(wav) > 44:
+                with open(wav, "rb") as f:
+                    return f.read()
+        except Exception:
+            pass
+
+        # Fallback: write AIFF, then convert with afconvert.
+        try:
+            subprocess.run(["say", "-o", aiff, text], check=True, capture_output=True, timeout=60)
+            subprocess.run(
+                ["afconvert", "-f", "WAVE", "-d", "LEI16@24000", aiff, wav],
+                check=True, capture_output=True, timeout=60,
+            )
+            if os.path.getsize(wav) > 44:
+                with open(wav, "rb") as f:
+                    return f.read()
+        except Exception:
+            pass
+
+    raise RuntimeError("macOS 'say' text-to-speech failed.")
+
+
 # ── image generation ──────────────────────────────────────────────────────────
 
 def generate_image(prompt: str) -> bytes:
     """Generate an image and return its raw bytes (PNG). Raises on failure."""
+    if provider() == "groq":
+        raise RuntimeError(
+            "Image generation isn't available on the free Groq provider. "
+            "Set config provider to 'openai' (paid) to generate images."
+        )
     client = _client()
     last_error = None
     for name in (image_model(), IMAGE_FALLBACK):

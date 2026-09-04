@@ -4,9 +4,14 @@
 
 ADHITHIYA is a cinematic, voice-first assistant that hears you, talks back, sees
 your screen, and controls your computer — by voice. The AI brain runs on
-**OpenAI** models: GPT-4o mini for chat, Whisper for speech-to-text, OpenAI TTS
-for a natural voice, and gpt-image-1 for image generation — all behind one
-provider layer (`core/llm.py`), so swapping providers later is a one-line change.
+**Groq by default — completely free, no credit card** — with OpenAI as an
+optional paid upgrade, both behind one provider layer (`core/llm.py`), so
+swapping is a one-line config change.
+
+- **Free (default):** Groq — `llama-3.3-70b-versatile` chat + `whisper-large-v3-turbo`
+  speech-to-text, with your Mac's built-in `say` voice for speech.
+- **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
+  `gpt-image-1` image generation (the only way to get images / screen-vision).
 
 ---
 
@@ -41,7 +46,7 @@ Just double-click **`run_adhithiya.command`** in Finder. It sets up Python
 dependencies automatically on first run (one-time ~1–2 GB download), then
 launches ADHITHIYA. If macOS blocks it, right-click → **Open**.
 
-> Requirements: Python 3.11–3.13 (from python.org) · a microphone · an OpenAI API key.
+> Requirements: Python 3.11–3.13 (from python.org) · a microphone · a free Groq API key.
 
 ### Option B — build a real standalone `.app`
 
@@ -62,10 +67,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-On first launch, enter your **OpenAI API key** (from
-[platform.openai.com](https://platform.openai.com)). When macOS asks, allow
-**microphone, camera, Accessibility and Screen Recording** in
-*System Settings → Privacy & Security*.
+On first launch, enter your **Groq API key** — free from
+[console.groq.com](https://console.groq.com), no card needed. (To use the paid
+OpenAI brain instead, set `"provider": "openai"` in the config and enter an
+OpenAI key.) When macOS asks, allow **microphone, camera, Accessibility and
+Screen Recording** in *System Settings → Privacy & Security*.
 
 > ### 🍎 On macOS 12 (Monterey)?
 > Use **Python 3.11 or 3.12**. The launchers auto-detect macOS 12 and install
@@ -101,12 +107,13 @@ committed**). Useful options:
 
 ```json
 {
-  "openai_api_key": "sk-…",
+  "provider": "groq",
+  "groq_api_key": "gsk-…",
   "assistant_name": "ADHITHIYA",
   "user_name": "",
-  "chat_model": "gpt-4o-mini",
-  "tts_voice": "alloy",
-  "image_model": "gpt-image-1",
+  "chat_model": "llama-3.3-70b-versatile",
+  "stt_model": "whisper-large-v3-turbo",
+  "say_voice": "",
   "morning_brief_enabled": true,
   "audio_prebuffer_ms": 80,
   "audio_blocksize": 512,
@@ -116,10 +123,14 @@ committed**). Useful options:
 
 | Key | What it does |
 | --- | --- |
+| `provider` | Which brain to use: `groq` (free, default) or `openai` (paid) |
+| `groq_api_key` / `openai_api_key` | API key for the active provider |
 | `assistant_name` / `user_name` | Change what it calls itself / you |
-| `chat_model` | Chat model (default `gpt-4o-mini`; any OpenAI chat model works) |
-| `tts_voice` | Speaking voice — `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`, `coral`, `sage`, `ash`, `ballad` (default `alloy`) |
-| `image_model` | Image model (default `gpt-image-1`; falls back to `dall-e-3`) |
+| `chat_model` | Chat model (Groq default `llama-3.3-70b-versatile`; OpenAI default `gpt-4o-mini`) |
+| `stt_model` | Speech-to-text model (Groq default `whisper-large-v3-turbo`; OpenAI default `whisper-1`) |
+| `say_voice` | macOS voice name for speech on Groq (e.g. `Samantha`); leave empty for the system voice |
+| `tts_voice` | OpenAI speaking voice — `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`, `coral`, `sage`, `ash`, `ballad` (OpenAI provider only) |
+| `image_model` | OpenAI image model (default `gpt-image-1`) — images/vision need the `openai` provider |
 | `audio_prebuffer_ms` | Jitter cushion before playback starts each turn (`0`–`1000`, default `80`). Higher = smoother but slightly slower first syllable; lower = snappier but more sensitive to network jitter |
 | `audio_blocksize` | Output buffer size in frames (`0` = let the OS choose, default `512`). Smaller = lower latency |
 | `ui_color` | UI accent colour (also changeable from the ⚙ menu) |
@@ -147,7 +158,7 @@ shutting down.
 ## 🗂️ Project structure
 
 ```
-├── main.py                  # Core loop — OpenAI voice pipeline (STT → chat/tools → TTS), audio I/O, tool dispatch
+├── main.py                  # Core loop — voice pipeline (STT → chat/tools → TTS), audio I/O, tool dispatch
 ├── ui.py                    # PyQt6 HUD — orb/face, waveform, log, plugin manager, camera
 ├── core/                    # prompt, plugin loader, voice gate, agent, self-recovery
 ├── actions/                 # 20+ skills (search, files, vision, reminders, weather…)
