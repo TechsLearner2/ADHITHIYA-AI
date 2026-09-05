@@ -1658,6 +1658,9 @@ class RemoteKeyOverlay(QWidget):
     """Floating overlay — QR code for instant phone pairing + manual key fallback."""
 
     closed = pyqtSignal()
+    # Emitted by mark_connected() (safe from any thread); the queued
+    # connection lands _mark_connected_ui on the GUI thread.
+    _connected_sig = pyqtSignal()
 
     _OW, _OH = 400, 465
 
@@ -1779,6 +1782,7 @@ class RemoteKeyOverlay(QWidget):
 
         self._ctimer = QTimer(self)
         self._ctimer.timeout.connect(self._tick)
+        self._connected_sig.connect(self._mark_connected_ui)
         self._ctimer.start(1000)
         self._tick()
 
@@ -1829,7 +1833,16 @@ class RemoteKeyOverlay(QWidget):
             self._do_close()
 
     def mark_connected(self) -> None:
-        """Call from any thread when a phone successfully connects."""
+        """Call from any thread when a phone successfully connects.
+
+        Only emits a signal — the actual UI work happens in
+        _mark_connected_ui on the GUI thread. Stopping _ctimer here directly
+        used to raise 'QObject::killTimer: Timers cannot be stopped from
+        another thread' whenever the dashboard's uvicorn thread reported a
+        pairing."""
+        self._connected_sig.emit()
+
+    def _mark_connected_ui(self) -> None:
         self._ctimer.stop()
         self._key_lbl.setText("CONNECTED")
         self._key_lbl.setStyleSheet(f"""

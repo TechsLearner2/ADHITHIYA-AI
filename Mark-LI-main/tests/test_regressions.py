@@ -254,3 +254,43 @@ def test_chat_leaves_messages_alone_without_the_toggle(monkeypatch):
     msgs = [{"role": "user", "content": "hi"}]
     assert llm.chat(msgs)["text"] == "Hi"
     assert seen["kwargs"]["messages"] == msgs         # untouched without flag
+
+
+# ── dashboard thread → QR overlay must hop to the GUI thread ─────────────────
+
+def test_mark_connected_from_dashboard_thread():
+    """The dashboard reports phone pairing from its uvicorn thread. Calling
+    mark_connected() there used to stop a QTimer from the wrong thread
+    ('QObject::killTimer: Timers cannot be stopped from another thread').
+    The public method must only emit; all UI work lands on the GUI thread."""
+    import os
+    import threading
+    import time
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+
+    from ui import RemoteKeyOverlay
+
+    app = QApplication.instance() or QApplication([])
+    ov = RemoteKeyOverlay(url="http://192.168.1.100:8000", key="ABC234",
+                          manual_url="192.168.1.100:8000")
+    assert ov._ctimer.isActive()
+
+    emitted = threading.Event()
+
+    def dashboard_thread():
+        ov.mark_connected()          # must be safe: no direct QObject calls
+        emitted.set()
+
+    threading.Thread(target=dashboard_thread, daemon=True).start()
+    assert emitted.wait(2)
+
+    for _ in range(50):              # pump the queued connection
+        app.processEvents()
+        if ov._key_lbl.text() == "CONNECTED":
+            break
+        time.sleep(0.02)
+
+    assert ov._key_lbl.text() == "CONNECTED"
+    assert not ov._ctimer.isActive()
