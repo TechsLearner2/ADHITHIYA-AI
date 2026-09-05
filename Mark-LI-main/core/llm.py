@@ -15,7 +15,7 @@ interface; switching is a one-line config change, never a code rewrite.
         image → gpt-image-1 (falls back to dall-e-3)
 
     provider = "local" (free forever, private, offline — runs on your Mac)
-        chat  → Ollama (default qwen2.5:7b; change via "local_model")
+        chat  → Ollama (default qwen3:8b; change via "local_model")
         TTS   → the Mac's built-in `say` voice
         STT   → local faster-whisper if installed, else your free Groq key
         image → not available offline (needs the paid OpenAI provider)
@@ -80,8 +80,8 @@ GROQ_VISION_MODEL    = "qwen/qwen3.6-27b"
 GROQ_VISION_FALLBACK = "qwen/qwen3.8-27b"
 
 LOCAL_BASE_URL       = "http://localhost:11434/v1"   # Ollama's OpenAI-compatible endpoint
-LOCAL_CHAT_MODEL     = "qwen2.5:7b"                  # solid local tool-calling; override via config
-LOCAL_CHAT_FALLBACKS = ["llama3.2", "qwen2.5:3b"]    # lighter models, tried if the default isn't pulled
+LOCAL_CHAT_MODEL     = "qwen3:8b"                    # best 2026 tool-calling brain in the 8B class; override via config
+LOCAL_CHAT_FALLBACKS = ["qwen3:4b", "llama3.2"]      # lighter models, tried if the default isn't pulled
 LOCAL_WHISPER_MODEL  = "base"                        # faster-whisper model (tiny/base/small/…)
 
 _CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}

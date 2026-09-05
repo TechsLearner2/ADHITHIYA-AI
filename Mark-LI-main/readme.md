@@ -17,9 +17,9 @@ swapping is a one-line config change.
   > [console.groq.com/playground?model=canopylabs%2Forpheus-v1-english](https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english)
   > — otherwise ADHITHIYA speaks with your Mac's voice (everything else works).
 - **Fully local (free forever, private, offline):** Ollama chat on your own Mac
-  (`qwen2.5:7b` by default) + your Mac's built-in `say` voice. Hearing uses local
-  whisper if installed, otherwise your free Groq key. Nothing breaks when a cloud
-  provider changes its mind.
+  (`qwen3:8b` by default — the best 8B-class tool-calling brain of 2026) + your
+  Mac's built-in `say` voice. Hearing uses local whisper if installed, otherwise
+  your free Groq key. Nothing breaks when a cloud provider changes its mind.
 - **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
   `gpt-image-1` image generation (creating images still needs OpenAI).
 
@@ -28,12 +28,12 @@ swapping is a one-line config change.
 ## 💻 Run fully local (no API key, no internet)
 
 1. Install **Ollama** from [ollama.com](https://ollama.com) and start it once.
-2. In Terminal, pull a model (one-time, ~4.7 GB):
+2. In Terminal, pull a model (one-time, ~5 GB):
    ```
-   ollama pull qwen2.5:7b
+   ollama pull qwen3:8b
    ```
-   (Lighter machines: `ollama pull llama3.2` instead — then set `local_model`.)
-3. Launch ADHITHIYA and click **"RUN FULLY LOCAL — no key needed"** on the setup
+   *Need it snappier?* `ollama pull qwen3:4b` (then set `"local_model": "qwen3:4b"`).
+   *Want maximum quality and don't mind waiting?* `ollama pull qwen3:14b` (16 GB RAM only).3. Launch ADHITHIYA and click **"RUN FULLY LOCAL — no key needed"** on the setup
    screen — or set `"provider": "local"` in `config/api_keys.json`.
 
 Hearing: ADHITHIYA uses your free Groq key for speech-to-text if one is already

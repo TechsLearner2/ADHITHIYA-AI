@@ -122,7 +122,7 @@ def test_local_provider_no_key_needed(monkeypatch):
     monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "local"})
     assert llm.provider() == "local"
     assert llm.get_api_key() == "ollama"
-    assert llm.chat_model() == "qwen2.5:7b"
+    assert llm.chat_model() == "qwen3:8b"
 
 
 def test_local_model_override(monkeypatch):
