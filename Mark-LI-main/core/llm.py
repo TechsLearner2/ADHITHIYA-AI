@@ -406,10 +406,13 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
                     print(f"[LLM] Model {model_id!r} can't use tools — retrying without.")
                     continue  # next pass (no tools)
                 if provider() == "local" and _local_unreachable(e):
+                    detail = f"{type(e).__name__}: {str(e)[:160]}"
+                    print(f"[LLM] Local chat failed — {detail}")
                     raise RuntimeError(
-                        "Ollama isn't answering. Make sure the Ollama app is "
-                        "open and a model is pulled (e.g. `ollama pull qwen3:8b`). "
-                        "The first load of a big model can take a minute or two."
+                        "Ollama isn't answering (" + detail + "). Make sure "
+                        "the Ollama app is open and a model is pulled (e.g. "
+                        "`ollama pull qwen3:8b`). If Ollama just restarted or "
+                        "is still loading, give it a minute and try again."
                     ) from e
                 raise
 

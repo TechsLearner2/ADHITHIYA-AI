@@ -258,6 +258,33 @@ def test_chat_leaves_messages_alone_without_the_toggle(monkeypatch):
 
 # ── dashboard thread → QR overlay must hop to the GUI thread ─────────────────
 
+def test_local_failure_message_carries_the_cause(monkeypatch):
+    """'Ollama isn't answering' must include the underlying error so a dead
+    server (ECONNREFUSED) is distinguishable from a timeout when debugging
+    from the app's log."""
+    from types import SimpleNamespace
+
+    from core import llm
+
+    class _Completions:
+        def create(self, **kwargs):
+            raise ConnectionError("[Errno 61] Connection refused")
+
+    monkeypatch.setattr(llm, "_client",
+                        lambda: SimpleNamespace(chat=SimpleNamespace(
+                            completions=_Completions())))
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "_chat_models", lambda: ["qwen3:8b"])
+    monkeypatch.setattr(llm, "_cfg", lambda: {})
+
+    with pytest.raises(RuntimeError) as excinfo:
+        llm.chat([{"role": "user", "content": "hi"}])
+    msg = str(excinfo.value)
+    assert "Ollama isn't answering" in msg
+    assert "ConnectionError" in msg          # the cause is now visible
+    assert "refused" in msg
+
+
 def test_mark_connected_from_dashboard_thread():
     """The dashboard reports phone pairing from its uvicorn thread. Calling
     mark_connected() there used to stop a QTimer from the wrong thread
@@ -268,6 +295,8 @@ def test_mark_connected_from_dashboard_thread():
     import time
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PyQt6.QtWidgets",
+                        reason="UI toolkit / native Qt libs not installed")
     from PyQt6.QtWidgets import QApplication
 
     from ui import RemoteKeyOverlay
