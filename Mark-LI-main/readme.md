@@ -105,10 +105,12 @@ OpenAI key.) When macOS asks, allow **microphone, camera, Accessibility and
 Screen Recording** in *System Settings → Privacy & Security*.
 
 > ### 🍎 On macOS 12 (Monterey)?
-> Use **Python 3.11 or 3.12**. The launchers auto-detect macOS 12 and install
+> Use **Python 3.11–3.13**. The launchers auto-detect macOS 12 and install
 > `requirements-macos12.txt` — versions of PyQt6, opencv and numpy that still
-> support Monterey (the newest releases require macOS 13+). This happens
-> automatically; you don't need to do anything extra.
+> ship macOS 12-compatible wheels (the newest releases require macOS 13+).
+> This happens automatically; you don't need to do anything extra. The
+> launcher also picks the best installed Python and rebuilds a stale virtual
+> environment if its Python was removed.
 
 ### 📚 Study buddy — taking notes during a class
 

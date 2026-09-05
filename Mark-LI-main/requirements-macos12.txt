@@ -4,15 +4,21 @@
 #  Why this file exists: the latest releases of a few packages now require
 #  macOS 13+, which breaks `pip install -r requirements.txt` on macOS 12.7.6.
 #  These pins are the newest versions that still ship macOS 12-compatible
-#  wheels (both Intel and Apple Silicon).
+#  wheels for Intel x86_64 AND support Python 3.11–3.13.
 #
-#  Use Python 3.11 or 3.12 (recommended) — older wheels have no Python 3.13
-#  binaries, which forces a source build and fails.
+#  Verified against PyPI (Sep 2026):
+#   • PyQt6 6.7.1           → cp38-abi3-macosx_11_0_universal2  (macOS 11+, any Py ≥3.8)
+#   • numpy 2.2.6           → cp313-cp313-macosx_10_13_x86_64   (macOS 10.13+, Py 3.13)
+#     (numpy 1.26.x has NO Python 3.13 wheels — the old pin forced a source
+#      build and failed on 3.13, so we moved to the 2.x line)
+#   • opencv-python 4.10.0.84 → cp37-abi3-macosx_12_0_x86_64    (macOS 12+, any Py ≥3.7)
+#     This is the LAST opencv with macOS 12 wheels (4.11+ require macOS 13+)
+#     and the first with full NumPy 2.0 support.
 # ─────────────────────────────────────────────────────────────────────────────
 
-PyQt6==6.7.1              # Qt 6.7 — last line built for macOS 12 (Monterey)
-numpy==1.26.4             # last numpy with macOS 12 wheels (opencv 4.9 needs <2.0)
-opencv-python==4.9.0.80   # last opencv that installs cleanly on macOS 12
+PyQt6==6.7.1
+numpy==2.2.6
+opencv-python==4.10.0.84
 
 sounddevice
 openai>=1.40

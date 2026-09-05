@@ -17,15 +17,21 @@ echo "  ADHITHIYA — app builder"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# ── Check for Python ─────────────────────────────────────────────────────────
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "❌ python3 was not found."
-  echo "   Install Python 3.11/3.12 from https://www.python.org/downloads/ first."
+# ── Pick a working Python (3.11–3.13 recommended) ────────────────────────────
+PYTHON_BIN=""
+for PY in python3.13 python3.12 python3.11 python3; do
+  if command -v "$PY" >/dev/null 2>&1 && "$PY" -c "import sys" >/dev/null 2>&1; then
+    PYTHON_BIN="$PY"
+    break
+  fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+  echo "❌ No working Python found."
+  echo "   Install Python 3.11–3.13 from https://www.python.org/downloads/ first."
   read -r -p "Press Enter to close…" _ || true
   exit 1
 fi
-
-echo "→ Python found: $(python3 --version)"
+echo "→ Python found: $("$PYTHON_BIN" --version)"
 
 # ── Compatibility: pick packages that match this macOS version ───────────────
 REQ_FILE="requirements.txt"
@@ -37,16 +43,20 @@ if [ "$(uname -s)" = "Darwin" ]; then
   fi
 fi
 
-PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+PYVER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 case "$PYVER" in
-  3.11|3.12) ;;
-  *) echo "⚠  Note: Python 3.11–3.12 is recommended on this OS." ;;
+  3.11|3.12|3.13) ;;
+  *) echo "⚠  Note: Python 3.11–3.13 is recommended on this OS." ;;
 esac
 
 # ── Build environment ────────────────────────────────────────────────────────
 if [ ! -d ".venv-build" ]; then
   echo "→ Creating build environment (.venv-build)…"
-  python3 -m venv .venv-build
+  "$PYTHON_BIN" -m venv .venv-build
+elif ! .venv-build/bin/python -c "import sys" >/dev/null 2>&1; then
+  echo "→ Old build environment is broken — rebuilding…"
+  rm -rf .venv-build
+  "$PYTHON_BIN" -m venv .venv-build
 fi
 # shellcheck disable=SC1091
 source .venv-build/bin/activate

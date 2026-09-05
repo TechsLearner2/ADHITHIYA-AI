@@ -8,8 +8,17 @@
 # ─────────────────────────────────────────────────────────────────────────────
 cd "$(dirname "$0")"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "❌ python3 not found — install Python 3.11/3.12 from python.org first."
+# ── Pick a working Python (3.11–3.13 recommended) ────────────────────────────
+PYTHON_BIN=""
+for PY in python3.13 python3.12 python3.11 python3; do
+  if command -v "$PY" >/dev/null 2>&1 && "$PY" -c "import sys" >/dev/null 2>&1; then
+    PYTHON_BIN="$PY"
+    break
+  fi
+done
+
+if [ -z "$PYTHON_BIN" ]; then
+  echo "❌ No working Python found — install Python 3.11–3.13 from python.org first."
   read -r -p "Press Enter to close…" _ || true
   exit 1
 fi
@@ -24,26 +33,37 @@ if [ "$(uname -s)" = "Darwin" ]; then
   fi
 fi
 
-PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-echo "→ Python $PYVER"
+PYVER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+echo "→ Python $PYVER ($PYTHON_BIN)"
 case "$PYVER" in
-  3.11|3.12) ;;
-  *) echo "⚠  Note: Python 3.11–3.12 is recommended on this OS." ;;
+  3.11|3.12|3.13) ;;
+  *) echo "⚠  Note: Python 3.11–3.13 is recommended on this OS." ;;
 esac
 
-# Create the virtual environment on first run
+# ── Create (or rebuild) the virtual environment ──────────────────────────────
+NEED_NEW=0
 if [ ! -d ".venv" ]; then
+  NEED_NEW=1
+elif ! .venv/bin/python -c "import sys" >/dev/null 2>&1; then
+  echo "→ Old environment is broken (its Python was removed) — rebuilding…"
+  rm -rf .venv
+  NEED_NEW=1
+fi
+if [ "$NEED_NEW" = "1" ]; then
   echo "→ First run: creating environment…"
-  python3 -m venv .venv
+  "$PYTHON_BIN" -m venv .venv
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-# Install dependencies if they're not there yet
+# ── Install dependencies if they're not there yet ────────────────────────────
 if ! python -c "import openai, PyQt6, sounddevice" >/dev/null 2>&1; then
   echo "→ Installing dependencies (one time)…"
   python -m pip install -q --upgrade pip
-  python -m pip install -q -r "$REQ_FILE"
+  python -m pip install -q -r "$REQ_FILE" || {
+    echo "⚠  Dependency install had a problem — see the messages above."
+    echo "   You can re-run this launcher to try again."
+  }
 fi
 
 echo "→ Starting ADHITHIYA…"
