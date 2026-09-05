@@ -41,8 +41,9 @@ swapping is a one-line config change.
    screen — or set `"provider": "local"` in `~/.adhithiya/config/api_keys.json`.
 
 Hearing: ADHITHIYA uses your free Groq key for speech-to-text if one is already
-saved; for 100% offline hearing, `pip install faster-whisper` (first use
-downloads a small model).
+saved (the brain itself never needs it). Fully offline hearing needs
+`faster-whisper`, but note: on macOS 12 that requires **Python 3.12** — its
+onnxruntime dependency has no Python 3.13 build for macOS older than 13.
 
 ---
 

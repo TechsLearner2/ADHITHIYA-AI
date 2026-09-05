@@ -474,9 +474,10 @@ def _transcribe_local(wav_bytes: bytes) -> str:
         return (resp.text or "").strip()
 
     raise RuntimeError(
-        "No speech-to-text available. Install faster-whisper "
-        "(pip install faster-whisper) or add your free Groq key to "
-        "config/api_keys.json as groq_api_key."
+        "No speech-to-text available. Add your free Groq key to "
+        "config/api_keys.json as groq_api_key (easiest), or install "
+        "faster-whisper — note: on macOS 12 that needs Python 3.12 "
+        "(onnxruntime has no Python 3.13 build for macOS < 13)."
     )
 
 
