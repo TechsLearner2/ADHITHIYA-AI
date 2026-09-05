@@ -3884,7 +3884,8 @@ class MainWindow(QMainWindow):
         txt = self._input.text().strip()
         if not txt: return
         self._input.clear()
-        self._log.append_log(f"You: {txt}")
+        # NOTE: do NOT log "You: …" here — the chat turn in main.py logs it.
+        # Logging in both places made typed text appear twice in the log.
         if self.on_text_command:
             threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 

@@ -905,6 +905,7 @@ class AdhithiyaAssistant:
         stripped = text.strip()
         lowered = stripped.lower()
         if lowered in {"/agent status", "/agent reset"} or lowered.startswith("/agent plan "):
+            self.ui.write_log(f"You: {stripped}")
             if lowered == "/agent status":
                 params = {"operation": "status"}
             elif lowered == "/agent reset":
@@ -2110,8 +2111,18 @@ class AdhithiyaAssistant:
             await self._dashboard.broadcast({"type": "status", "state": "active"})
 
         # Main conversation loop — one turn at a time
+        self._last_transcript = ""
+        self._last_transcript_ts = 0.0
         while True:
             user_text = await self._transcript_queue.get()
+            # Guard: the mic pipeline can (rarely) queue the same utterance
+            # twice; ignore an exact duplicate that lands within 1.5 s so it
+            # never shows up as two "You: …" turns.
+            _now = time.monotonic()
+            if user_text == self._last_transcript and _now - self._last_transcript_ts < 1.5:
+                continue
+            self._last_transcript = user_text
+            self._last_transcript_ts = _now
             self.ui.set_state("THINKING")
             try:
                 answer = await self._chat_turn(user_text)
