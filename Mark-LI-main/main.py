@@ -2112,6 +2112,15 @@ class AdhithiyaAssistant:
 def main():
     # face.png sits next to the source in dev and inside the bundle when frozen
     face_path = BASE_DIR / "face.png"
+    # A face dropped at ~/.adhithiya/face.png overrides the bundled one, so the
+    # face can be changed later without re-downloading the app.
+    try:
+        from memory.config_manager import get_data_dir
+        user_face = get_data_dir() / "face.png"
+        if user_face.exists() and user_face.resolve() != face_path.resolve():
+            face_path = user_face
+    except Exception:
+        pass
     ui = AdhithiyaUI(str(face_path))
 
     def runner():
