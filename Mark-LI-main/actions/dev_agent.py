@@ -16,6 +16,13 @@ BASE_DIR         = get_base_dir()
 API_CONFIG_PATH  = BASE_DIR / "config" / "api_keys.json"
 PROJECTS_DIR     = Path.home() / "Desktop" / "AdhithiyaProjects"
 MAX_FIX_ATTEMPTS = 5
+
+# Per-stage model roles. An empty string means "the active provider's default
+# chat model" (see _get_model → core.llm.generate_content); name a specific
+# model here later to tune one stage without touching the call sites.
+MODEL_PLANNER = ""
+MODEL_WRITER  = ""
+
 def _get_api_key() -> str:
     from core.llm import get_api_key
     return get_api_key()
