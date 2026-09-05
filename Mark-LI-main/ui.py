@@ -46,9 +46,10 @@ API_FILE   = CONFIG_DIR / "api_keys.json"
 
 
 def _read_full_config() -> dict:
-    """Read api_keys.json config dict. Returns {} on any error."""
+    """Merged config (primary ~/.adhithiya + any legacy file). {} on error."""
     try:
-        return json.loads(API_FILE.read_text(encoding="utf-8"))
+        from memory.config_manager import load_api_keys
+        return load_api_keys()
     except Exception:
         return {}
 
@@ -3892,15 +3893,13 @@ class MainWindow(QMainWindow):
         self.hud.speaking = (state == "SPEAKING")
 
     def _check_config(self) -> bool:
-        if not API_FILE.exists(): return False
-        try:
-            d = json.loads(API_FILE.read_text(encoding="utf-8"))
-            if str(d.get("provider", "")).strip().lower() == "local":
-                return bool(d.get("os_system"))
-            key = d.get("groq_api_key") or d.get("openai_api_key")
-            return bool(key) and bool(d.get("os_system"))
-        except Exception:
+        d = _read_full_config()
+        if not d:
             return False
+        if str(d.get("provider", "")).strip().lower() == "local":
+            return bool(d.get("os_system"))
+        key = d.get("groq_api_key") or d.get("openai_api_key")
+        return bool(key) and bool(d.get("os_system"))
 
     def _show_setup(self):
         ov = SetupOverlay(self.centralWidget())

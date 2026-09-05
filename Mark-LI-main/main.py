@@ -89,6 +89,22 @@ from core.project_agent       import AgentResult, ProjectAgent
 from core.self_recovery       import SelfRecovery
 from core.voice_gate           import VoiceGate
 
+_TRANSCRIBE_ERRS: set[str] = set()
+
+
+def _once_stt_error(assistant, err: Exception) -> None:
+    """Log a speech-to-text failure once per distinct cause, not every frame."""
+    key = str(err)
+    if key in _TRANSCRIBE_ERRS:
+        return
+    _TRANSCRIBE_ERRS.add(key)
+    print(f"[ADHITHIYA] ❌ Transcribe: {err}")
+    try:
+        assistant.ui.write_log(f"ERR: Can't hear you — {err}")
+    except Exception:
+        pass
+
+
 def get_base_dir():
     if getattr(sys, "frozen", False):
         # PyInstaller: bundled assets (prompt.txt, plugins, face.png) live in
@@ -1459,7 +1475,7 @@ class AdhithiyaAssistant:
                 from core.llm import transcribe_wav
                 return transcribe_wav(self._pcm_to_wav(pcm, SEND_SAMPLE_RATE))
             except Exception as e:
-                print(f"[ADHITHIYA] ❌ Transcribe: {e}")
+                _once_stt_error(self, e)
                 return ""
 
         async def _do():
@@ -2126,6 +2142,18 @@ def main():
     def runner():
         ui.wait_for_api_key()
         assistant = AdhithiyaAssistant(ui)
+        try:
+            from core.llm import provider, _ollama_health
+            if provider() == "local":
+                up, models = _ollama_health()
+                if up:
+                    print(f"[ADHITHIYA] Local mode: Ollama reachable — models pulled: "
+                          f"{models or 'none yet (run: ollama pull qwen3:8b)'}")
+                else:
+                    print("[ADHITHIYA] Local mode: ⚠ Ollama NOT reachable — "
+                          "open the Ollama app (https://ollama.com) and pull a model.")
+        except Exception:
+            pass
         try:
             asyncio.run(assistant.run())
         except KeyboardInterrupt:

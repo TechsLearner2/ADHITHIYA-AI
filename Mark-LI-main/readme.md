@@ -38,7 +38,7 @@ swapping is a one-line config change.
    > Interrupted a pull? Just re-run the command — Ollama keeps the partial
    > download and resumes where it left off. ADHITHIYA also auto-detects
    > **whatever model you've pulled**, so you don't have to edit any config.3. Launch ADHITHIYA and click **"RUN FULLY LOCAL — no key needed"** on the setup
-   screen — or set `"provider": "local"` in `config/api_keys.json`.
+   screen — or set `"provider": "local"` in `~/.adhithiya/config/api_keys.json`.
 
 Hearing: ADHITHIYA uses your free Groq key for speech-to-text if one is already
 saved; for 100% offline hearing, `pip install faster-whisper` (first use
@@ -123,7 +123,7 @@ records from the **microphone** (picks up your speakers). To capture the
    speakers **and** BlackHole, and set it as the Mac's output — so you still
    hear the class while ADHITHIYA records it
 3. In ADHITHIYA say: *"take notes for my class using system audio"* (or set
-   `"study_audio_device"` in `config/api_keys.json` to your BlackHole device)
+   `"study_audio_device"` in `~/.adhithiya/config/api_keys.json` to your BlackHole device)
 
 Notes are saved to `~/.adhithiya/notes/` as Markdown. Then ask:
 *"summarize my notes"* · *"read my notes"* · *"export my notes"* · *"add a note:
@@ -133,7 +133,7 @@ Notes are saved to `~/.adhithiya/notes/` as Markdown. Then ask:
 
 ## ⚙️ Configuration
 
-Everything lives in `config/api_keys.json` (created on first run, **never
+Everything lives in `~/.adhithiya/config/api_keys.json` (created on first run, **never
 committed**). Useful options:
 
 ```json
@@ -197,7 +197,7 @@ shutting down.
 ├── plugins/                 # drop-in skills (calendar, notes, study mode, pomodoro…)
 ├── memory/                  # long-term memory + adaptive learning
 ├── dashboard/               # FastAPI phone-remote (QR pairing)
-├── config/api_keys.json     # your API key + settings (gitignored)
+└── ~/.adhithiya/config/api_keys.json  # your API key + settings (persists across updates)
 └── face.png                 # HUD avatar (replace with your own if you like)
 ```
 

@@ -91,17 +91,23 @@ _LOCAL_PREFERENCE    = [
 ]
 
 
-def _local_installed_models() -> list[str]:
-    """Models currently pulled in Ollama (GET /api/tags). [] if Ollama is off."""
+def _ollama_health() -> tuple[bool, list[str]]:
+    """(is Ollama reachable?, [pulled model names]) — best-effort 2s probe."""
     import json as _json
     from urllib import request as _req
     try:
         with _req.urlopen("http://localhost:11434/api/tags", timeout=2.0) as r:
             data = _json.loads(r.read().decode("utf-8"))
-        return [str(m.get("name", "")).strip() for m in data.get("models", [])
-                if str(m.get("name", "")).strip()]
+        names = [str(m.get("name", "")).strip() for m in data.get("models", [])
+                 if str(m.get("name", "")).strip()]
+        return True, names
     except Exception:
-        return []
+        return False, []
+
+
+def _local_installed_models() -> list[str]:
+    """Models currently pulled in Ollama (GET /api/tags). [] if Ollama is off."""
+    return _ollama_health()[1]
 
 _CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}
 _ORPHEUS_DISABLED: bool = False   # set once Orpheus rejects us (terms/plan)
@@ -247,6 +253,12 @@ def _tools_unsupported(err: Exception) -> bool:
     ))
 
 
+def _local_unreachable(err: Exception) -> bool:
+    """True if Ollama simply isn't answering (app closed, model still loading)."""
+    text = (type(err).__name__ + " " + str(err)).lower()
+    return any(k in text for k in ("timeout", "connection", "connect", "refused"))
+
+
 def _client():
     cls = _OpenAI
     if cls is None:
@@ -257,6 +269,10 @@ def _client():
         kwargs["base_url"] = GROQ_BASE_URL
     elif p == "local":
         kwargs["base_url"] = LOCAL_BASE_URL
+        # Cold-loading a 7–8B model into RAM on an Intel Mac can take well over
+        # a minute; a 60s timeout would abort the very first request every
+        # time, which looked exactly like a hang in the startup briefing.
+        kwargs["timeout"] = 300.0
     return cls(**kwargs)
 
 
@@ -297,6 +313,12 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
                 if use_tools and _tools_unsupported(e):
                     print(f"[LLM] Model {model_id!r} can't use tools — retrying without.")
                     continue  # next pass (no tools)
+                if provider() == "local" and _local_unreachable(e):
+                    raise RuntimeError(
+                        "Ollama isn't answering. Make sure the Ollama app is "
+                        "open and a model is pulled (e.g. `ollama pull qwen3:8b`). "
+                        "The first load of a big model can take a minute or two."
+                    ) from e
                 raise
 
             msg = resp.choices[0].message

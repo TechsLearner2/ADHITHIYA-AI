@@ -12,15 +12,15 @@ def get_base_dir() -> Path:
 def get_data_dir() -> Path:
     """User-writable directory for config and state.
 
-    In a frozen .app the bundle is read-only, so writable data lives in
-    ~/.adhithiya. In a normal source run this is the repo root — behaviour
-    is unchanged from before.
+    Always ~/.adhithiya — whether run from source (the double-click .command)
+    or the frozen .app. Each re-downloaded ZIP is a brand-new folder, so a
+    repo-local config would silently wipe the API key, provider choice, memory
+    and self-learned procedures on every update. ~/.adhithiya survives all of
+    that.
     """
-    if getattr(sys, "frozen", False):
-        data_dir = Path.home() / ".adhithiya"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        return data_dir
-    return get_base_dir()
+    data_dir = Path.home() / ".adhithiya"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
 
 BASE_DIR    = get_base_dir()
 CONFIG_DIR  = get_data_dir() / "config"
@@ -58,14 +58,39 @@ def save_api_keys(api_key: str, provider: str = "groq") -> None:
         encoding="utf-8"
     )
 
-def load_api_keys() -> dict:
-    if not CONFIG_FILE.exists():
-        return {}
+def _read_json(path: Path) -> dict:
     try:
-        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"❌ Failed to load api_keys.json: {e}")
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
         return {}
+
+
+def load_api_keys() -> dict:
+    """Merged view of the user's config.
+
+    Primary source is ~/.adhithiya/config/api_keys.json. A legacy repo-local
+    config (older builds wrote there) is also read so a key the user already
+    entered is never lost. The most recently modified file wins on conflicts;
+    the others only fill gaps (so a stale file can't clobber a newer choice).
+    """
+    candidates = [CONFIG_FILE]
+    legacy = get_base_dir() / "config" / "api_keys.json"
+    try:
+        if legacy.exists() and legacy.resolve() != CONFIG_FILE.resolve():
+            candidates.append(legacy)
+    except Exception:
+        pass
+    try:
+        candidates.sort(key=lambda c: c.stat().st_mtime, reverse=True)
+    except Exception:
+        pass
+
+    data: dict = {}
+    for path in candidates:
+        for k, v in _read_json(path).items():
+            if k not in data and v not in (None, "", [], {}):
+                data[k] = v
+    return data
 
 def get_openai_key() -> str | None:
     return load_api_keys().get("openai_api_key")
