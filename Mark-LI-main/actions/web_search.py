@@ -42,6 +42,13 @@ def _run_bounded(fn, timeout: float, label: str = "task"):
     return box[0]
 
 
+def _log_failure(label: str, exc: Exception) -> None:
+    """Report a failed LLM attempt. Print-only on purpose: every caller runs
+    this inside its except-branch right before falling back to DuckDuckGo, so
+    a raise here would take the fallback down with it."""
+    print(f"[WebSearch] {label} failed ({exc}) — falling back to DuckDuckGo")
+
+
 def _llm_answer(query: str) -> str:
     """Plain LLM answer."""
     from core.llm import chat
