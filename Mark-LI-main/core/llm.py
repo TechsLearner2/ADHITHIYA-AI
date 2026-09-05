@@ -333,7 +333,16 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
                     "name": tc.function.name,
                     "arguments": args,
                 })
-            return {"text": (msg.content or "").strip(), "tool_calls": tool_calls}
+            text = (msg.content or "").strip()
+            if not text and not tool_calls:
+                # Thinking models (qwen3 etc.) can leave `content` empty and put
+                # the real answer in `reasoning_content`. Never hand back silence.
+                rc = getattr(msg, "reasoning_content", None)
+                if not rc:
+                    rc = (getattr(msg, "model_extra", None) or {}).get("reasoning_content")
+                if rc:
+                    text = str(rc).strip()
+            return {"text": text, "tool_calls": tool_calls}
 
     if provider() == "local" and last_err is not None:
         raise RuntimeError(

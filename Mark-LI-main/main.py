@@ -925,6 +925,7 @@ class AdhithiyaAssistant:
             asyncio.run_coroutine_threadsafe(_run_local_agent(), self._loop)
             return
         async def _do():
+            self.ui.set_state("THINKING")
             try:
                 answer = await self._chat_turn(stripped)
             except Exception as e:
@@ -934,6 +935,8 @@ class AdhithiyaAssistant:
                           "Check your connection and try again.")
             if answer:
                 await self._speak_text(answer)
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
         asyncio.run_coroutine_threadsafe(_do(), self._loop)
 
     def _approve_pending_agent(self) -> None:
@@ -1572,6 +1575,10 @@ class AdhithiyaAssistant:
                 if self._vision_cam_active:
                     self._vision_cam_active = False
                     self.ui.stop_camera_stream()
+                if not answer:
+                    self.ui.write_log(
+                        "ERR: The local brain replied with nothing — it may "
+                        "still be loading. Give it a moment and try again.")
                 return answer
 
             tool_results = []
@@ -2158,9 +2165,13 @@ def main():
             if provider() == "local":
                 up, models = _ollama_health()
                 if up:
+                    ui.write_log(f"SYS: Local mode — Ollama reachable, models: "
+                                 f"{models or 'none yet (run: ollama pull qwen3:8b)'}")
                     print(f"[ADHITHIYA] Local mode: Ollama reachable — models pulled: "
                           f"{models or 'none yet (run: ollama pull qwen3:8b)'}")
                 else:
+                    ui.write_log("SYS: ⚠ Ollama NOT reachable — open the Ollama "
+                                 "app (ollama.com) and pull a model.")
                     print("[ADHITHIYA] Local mode: ⚠ Ollama NOT reachable — "
                           "open the Ollama app (https://ollama.com) and pull a model.")
         except Exception:
