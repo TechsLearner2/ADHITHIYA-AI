@@ -1633,6 +1633,19 @@ class AdhithiyaAssistant:
 
         return "I couldn't complete that task."
 
+    async def _wait_playback_idle(self, timeout: float = 120.0) -> None:
+        """Await until in-flight playback finishes (or the timeout passes).
+
+        Returns once the player is neither speaking nor holding queued audio.
+        The bound keeps a dead/stuck output device from wedging the speak
+        queue forever — after the timeout we fall through and (as before)
+        replace whatever is left."""
+        import time as _time
+        deadline = _time.monotonic() + timeout
+        while ((self._is_speaking or not self.audio_in_queue.empty())
+               and _time.monotonic() < deadline):
+            await asyncio.sleep(0.05)
+
     async def _speak_text(self, text: str) -> None:
         """Synthesise and play a text answer, relaying to connected phones."""
         text = (text or "").strip()
@@ -1659,6 +1672,13 @@ class AdhithiyaAssistant:
         pcm = await asyncio.to_thread(self._wav_to_pcm, wav, RECEIVE_SAMPLE_RATE)
         if not pcm:
             return
+
+        # Let any in-flight speech FINISH instead of truncating it mid-word.
+        # Two speak() calls used to collide (e.g. an error apology + a system
+        # alert): the second drained the first's still-playing audio and the
+        # sentence died partway ("...CPU|"). Only an explicit user interrupt
+        # (ESC / interrupt()) may drop audio deliberately.
+        await self._wait_playback_idle()
 
         self._interrupted = False
         while True:                       # drop any audio still queued

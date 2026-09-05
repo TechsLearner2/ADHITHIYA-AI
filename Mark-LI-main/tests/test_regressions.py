@@ -379,6 +379,51 @@ def test_monitor_temp_alert_also_paused_while_busy(monkeypatch):
         assert mon.check() is None
 
 
+# ── speech: a new message must never truncate the one still playing ─────────
+
+def test_new_speech_waits_for_inflight_playback():
+    """Two speak() calls colliding (error apology + system alert) used to
+    drain the first message's still-playing audio mid-word. _speak_text now
+    awaits _wait_playback_idle() first: wait while speaking/queued, bounded
+    by a timeout so a dead output device can't wedge the queue."""
+    import asyncio
+    import time as _t
+
+    try:
+        import main
+    except Exception as e:  # headless box without DISPLAY / audio stack
+        pytest.skip(f"main not importable here: {e}")
+
+    class _Fake:
+        def __init__(self):
+            self._is_speaking = True
+            self.audio_in_queue = asyncio.Queue()
+
+    fake = _Fake()
+
+    async def drive():
+        async def unstick():
+            await asyncio.sleep(0.2)
+            fake._is_speaking = False
+        asyncio.create_task(unstick())
+        t0 = _t.monotonic()
+        await main.AdhithiyaAssistant._wait_playback_idle(fake, timeout=5)
+        return _t.monotonic() - t0
+
+    waited = asyncio.run(drive())
+    assert 0.15 < waited < 2, waited      # it genuinely waited, then proceeded
+
+    fake2 = _Fake()                       # playback stuck forever…
+
+    async def stuck():
+        t0 = _t.monotonic()
+        await main.AdhithiyaAssistant._wait_playback_idle(fake2, timeout=0.3)
+        return _t.monotonic() - t0
+
+    waited2 = asyncio.run(stuck())
+    assert 0.25 < waited2 < 2, waited2    # …bounded by the timeout, not a hang
+
+
 # ── dashboard thread → QR overlay must hop to the GUI thread ─────────────────
 
 def test_local_failure_message_carries_the_cause(monkeypatch):
