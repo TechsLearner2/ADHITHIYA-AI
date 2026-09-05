@@ -31,12 +31,17 @@ Config (config/api_keys.json):
     tts_voice        — OpenAI speaking voice (provider=openai), default "alloy"
     image_model      — OpenAI image model (default "gpt-image-1")
     temperature      — optional, default 0.7
+    local_keep_alive — how long Ollama keeps the model in RAM after pre-warm
+                       (default "30m"; e.g. "2h") — beats the 5-minute eviction
+    local_no_think   — true → append Qwen3's /no_think switch: no internal
+                       monologue, several× faster replies on CPU-only Macs
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import re
 
 from memory.config_manager import load_api_keys
 
@@ -293,6 +298,43 @@ def _stt_models() -> list[str]:
     return out
 
 
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def _strip_think(text: str) -> str:
+    """Remove inline qwen3-style <think>…</think> monologue from a reply."""
+    return _THINK_RE.sub("", text).strip()
+
+
+def _no_think_enabled() -> bool:
+    """Config switch: skip the local model's internal monologue entirely
+    ("local_no_think": true) — the right default for CPU-only Macs where
+    every thinking token is seconds of waiting."""
+    return str(_cfg().get("local_no_think", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _local_no_think_messages(messages: list[dict]) -> list[dict]:
+    """Append Qwen3's documented `/no_think` soft switch when running local
+    with local_no_think enabled. Prefers the system prompt; falls back to the
+    last user message. Returns a new list — the caller's messages are never
+    mutated (the dashboard/memory may hold the same dicts)."""
+    if provider() != "local" or not _no_think_enabled():
+        return messages
+    msgs = list(messages)
+    idx = next((i for i, m in enumerate(msgs) if m.get("role") == "system"), None)
+    if idx is None:
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("role") == "user":
+                idx = i
+                break
+    if idx is None:
+        return msgs
+    patched = dict(msgs[idx])
+    patched["content"] = ((patched.get("content") or "") + " /no_think").strip()
+    msgs[idx] = patched
+    return msgs
+
+
 def _tools_unsupported(err: Exception) -> bool:
     """True if the model rejected the `tools` parameter (some local models
     don't support function calling). We then retry the turn without tools."""
@@ -344,7 +386,7 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
         for use_tools in passes:
             kwargs: dict = {
                 "model": model_id,
-                "messages": messages,
+                "messages": _local_no_think_messages(messages),
                 "temperature": temperature() if temp is None else temp,
             }
             if use_tools and tools:
@@ -384,6 +426,10 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
                     "arguments": args,
                 })
             text = (msg.content or "").strip()
+            # Thinking models behind Ollama inline their monologue as
+            # <think>…</think> INSIDE content (verified against qwen3:8b);
+            # without this the assistant would read its reasoning out loud.
+            text = _strip_think(text)
             if not text and not tool_calls:
                 # Thinking models (qwen3 etc.) can leave `content` empty and put
                 # the real answer in `reasoning_content`. Never hand back silence.

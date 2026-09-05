@@ -193,3 +193,64 @@ def test_prewarm_survives_network_failure(monkeypatch):
     monkeypatch.setattr(llm, "provider", lambda: "local")
     monkeypatch.setattr(llm, "chat_model", lambda: "qwen3:8b")
     assert llm.prewarm_local() is True   # started; failure logged, not raised
+
+
+# ── local mode: qwen3 think-blocks must never be spoken ──────────────────────
+
+def test_strip_think_removes_inline_monologue():
+    from core import llm
+    # exact shape observed from qwen3:8b via Ollama's OpenAI endpoint
+    raw = ('<think>\nOkay, the user said "Say OK". Long reasoning here.\n'
+           '</think>\n\nSure! What\'s on your mind?')
+    assert llm._strip_think(raw) == "Sure! What's on your mind?"
+    assert llm._strip_think("no blocks here") == "no blocks here"
+
+
+def _fake_openai_client(reply_text: str, seen: dict):
+    from types import SimpleNamespace
+
+    class _Completions:
+        def create(self, **kwargs):
+            seen["kwargs"] = kwargs
+            msg = SimpleNamespace(content=reply_text, tool_calls=None)
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    class _Client:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=_Completions())
+
+    return _Client()
+
+
+def test_chat_strips_think_block_and_appends_no_think(monkeypatch):
+    from core import llm
+
+    seen: dict = {}
+    monkeypatch.setattr(llm, "_client", lambda: _fake_openai_client(
+        "<think>secret monologue</think>\n\nHello!", seen))
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "_chat_models", lambda: ["qwen3:8b"])
+    monkeypatch.setattr(llm, "_cfg", lambda: {"local_no_think": True})
+
+    original = [{"role": "system", "content": "You are ADHITHIYA."},
+                {"role": "user", "content": "hi"}]
+    out = llm.chat(original)
+
+    assert out["text"] == "Hello!"                    # monologue never spoken
+    sent = seen["kwargs"]["messages"]
+    assert sent[0]["content"].endswith("/no_think")   # switch applied on wire
+    assert original[0]["content"] == "You are ADHITHIYA."  # caller unmutated
+
+
+def test_chat_leaves_messages_alone_without_the_toggle(monkeypatch):
+    from core import llm
+
+    seen: dict = {}
+    monkeypatch.setattr(llm, "_client", lambda: _fake_openai_client("Hi", seen))
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "_chat_models", lambda: ["qwen3:8b"])
+    monkeypatch.setattr(llm, "_cfg", lambda: {})
+
+    msgs = [{"role": "user", "content": "hi"}]
+    assert llm.chat(msgs)["text"] == "Hi"
+    assert seen["kwargs"]["messages"] == msgs         # untouched without flag
