@@ -33,7 +33,11 @@ swapping is a one-line config change.
    ollama pull qwen3:8b
    ```
    *Need it snappier?* `ollama pull qwen3:4b` (then set `"local_model": "qwen3:4b"`).
-   *Want maximum quality and don't mind waiting?* `ollama pull qwen3:14b` (16 GB RAM only).3. Launch ADHITHIYA and click **"RUN FULLY LOCAL — no key needed"** on the setup
+   *Want maximum quality and don't mind waiting?* `ollama pull qwen3:14b` (16 GB RAM only).
+
+   > Interrupted a pull? Just re-run the command — Ollama keeps the partial
+   > download and resumes where it left off. ADHITHIYA also auto-detects
+   > **whatever model you've pulled**, so you don't have to edit any config.3. Launch ADHITHIYA and click **"RUN FULLY LOCAL — no key needed"** on the setup
    screen — or set `"provider": "local"` in `config/api_keys.json`.
 
 Hearing: ADHITHIYA uses your free Groq key for speech-to-text if one is already

@@ -125,6 +125,23 @@ def test_local_provider_no_key_needed(monkeypatch):
     assert llm.chat_model() == "qwen3:8b"
 
 
+def test_local_chat_models_prefer_installed(monkeypatch):
+    # Desired model first, then the best of what's actually pulled.
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "local"})
+    monkeypatch.setattr(llm, "_local_installed_models",
+                        lambda: ["llama3.2", "qwen2.5:7b"])
+    assert llm._chat_models() == [
+        "qwen3:8b", "qwen2.5:7b", "llama3.2", "qwen3:4b",
+    ]
+
+
+def test_local_chat_models_desired_installed_first(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "local"})
+    monkeypatch.setattr(llm, "_local_installed_models",
+                        lambda: ["qwen3:8b", "llama3.2"])
+    assert llm._chat_models()[0] == "qwen3:8b"
+
+
 def test_local_model_override(monkeypatch):
     monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "local", "local_model": "llama3.2"})
     assert llm.chat_model() == "llama3.2"

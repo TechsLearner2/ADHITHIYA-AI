@@ -83,6 +83,25 @@ LOCAL_BASE_URL       = "http://localhost:11434/v1"   # Ollama's OpenAI-compatibl
 LOCAL_CHAT_MODEL     = "qwen3:8b"                    # best 2026 tool-calling brain in the 8B class; override via config
 LOCAL_CHAT_FALLBACKS = ["qwen3:4b", "llama3.2"]      # lighter models, tried if the default isn't pulled
 LOCAL_WHISPER_MODEL  = "base"                        # faster-whisper model (tiny/base/small/…)
+# Preferred brains for Intel Macs, best first — used to order whatever the
+# user has actually pulled (lower index = picked first).
+_LOCAL_PREFERENCE    = [
+    "qwen3:14b", "qwen3:8b", "qwen2.5:7b", "llama3.1:8b",
+    "qwen3:4b", "gemma3:4b", "llama3.2", "phi4-mini",
+]
+
+
+def _local_installed_models() -> list[str]:
+    """Models currently pulled in Ollama (GET /api/tags). [] if Ollama is off."""
+    import json as _json
+    from urllib import request as _req
+    try:
+        with _req.urlopen("http://localhost:11434/api/tags", timeout=2.0) as r:
+            data = _json.loads(r.read().decode("utf-8"))
+        return [str(m.get("name", "")).strip() for m in data.get("models", [])
+                if str(m.get("name", "")).strip()]
+    except Exception:
+        return []
 
 _CONFIG_CACHE: dict = {"ts": 0.0, "cfg": {}}
 _ORPHEUS_DISABLED: bool = False   # set once Orpheus rejects us (terms/plan)
@@ -190,7 +209,16 @@ def _chat_models() -> list[str]:
                 out.append(m)
         return out
     if p == "local":
-        out = [chat_model()]
+        desired = chat_model()
+        installed = _local_installed_models()
+        # Desired brain first, then the best of what's actually pulled, then
+        # the remaining fallbacks (which 404 fast if not pulled). This way the
+        # user's downloaded model always wins — no config editing needed.
+        ranked = sorted(
+            [m for m in installed if m != desired],
+            key=lambda m: _LOCAL_PREFERENCE.index(m) if m in _LOCAL_PREFERENCE else 999,
+        )
+        out = [desired] + ranked
         for m in LOCAL_CHAT_FALLBACKS:
             if m not in out:
                 out.append(m)
@@ -287,9 +315,10 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
 
     if provider() == "local" and last_err is not None:
         raise RuntimeError(
-            "Couldn't reach a local model. Make sure Ollama is running "
-            "(https://ollama.com) and you've pulled a model, e.g.: "
-            "`ollama pull qwen2.5:7b`. Last error: " + str(last_err)[:200]
+            "Couldn't reach a local model. Make sure the Ollama app is running, "
+            "then pull a brain in Terminal, e.g.: `ollama pull qwen3:8b` "
+            "(if you interrupted a pull, just re-run it — it resumes). "
+            "Last error: " + str(last_err)[:200]
         )
     raise (last_err or RuntimeError("no chat model available"))
 
