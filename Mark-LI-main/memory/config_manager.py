@@ -36,6 +36,42 @@ DEFAULT_SELF_RECOVERY_CONFIG = {
 def ensure_config_dir() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
+def _atomic_save(data: dict) -> None:
+    """Write the config so a crash can never leave a half-written file, and
+    keep it private (0600) — it holds API keys.
+
+    write→chmod→os.replace: the temp file sits in the same directory (same
+    filesystem), so the final rename is atomic; readers either see the old
+    file or the complete new one, never a truncated mix.
+    """
+    import os
+
+    ensure_config_dir()
+    tmp = CONFIG_FILE.with_name(CONFIG_FILE.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)          # no-op-ish on Windows; tight elsewhere
+    except OSError:
+        pass
+    os.replace(tmp, CONFIG_FILE)
+
+def _harden_existing_permissions() -> None:
+    """Tighten an already-saved config to 0600 (best-effort, one shot per
+    session) so keys saved by older builds stop being group/world-readable."""
+    import os
+
+    global _PERMS_HARDENED
+    if _PERMS_HARDENED:
+        return
+    _PERMS_HARDENED = True
+    try:
+        if CONFIG_FILE.exists():
+            os.chmod(CONFIG_FILE, 0o600)
+    except OSError:
+        pass
+
+_PERMS_HARDENED = False
+
 def config_exists() -> bool:
     return CONFIG_FILE.exists()
 
@@ -53,10 +89,7 @@ def save_api_keys(api_key: str, provider: str = "groq") -> None:
     data["provider"] = str(provider).strip().lower()
     data[field] = api_key.strip()
 
-    CONFIG_FILE.write_text(
-        json.dumps(data, indent=2),
-        encoding="utf-8"
-    )
+    _atomic_save(data)
 
 def _read_json(path: Path) -> dict:
     try:
@@ -73,6 +106,7 @@ def load_api_keys() -> dict:
     entered is never lost. The most recently modified file wins on conflicts;
     the others only fill gaps (so a stale file can't clobber a newer choice).
     """
+    _harden_existing_permissions()
     candidates = [CONFIG_FILE]
     legacy = get_base_dir() / "config" / "api_keys.json"
     try:
@@ -162,7 +196,7 @@ def save_audio_input_device(device) -> None:
         data.pop("audio_input_device", None)
     else:
         data["audio_input_device"] = device
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _atomic_save(data)
 
 
 def save_assistant_config(assistant_name: str, user_name: str) -> None:
@@ -176,7 +210,7 @@ def save_assistant_config(assistant_name: str, user_name: str) -> None:
             data = {}
     data["assistant_name"] = assistant_name.strip() or DEFAULT_ASSISTANT_NAME
     data["user_name"] = user_name.strip()
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _atomic_save(data)
 
 
 def get_brief_enabled() -> bool:
@@ -192,7 +226,7 @@ def save_brief_enabled(enabled: bool) -> None:
         except Exception:
             data = {}
     data["morning_brief_enabled"] = enabled
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _atomic_save(data)
 
 
 def get_plugin_enabled(plugin_name: str) -> bool:
@@ -213,7 +247,7 @@ def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
         plugins_cfg = {}
     plugins_cfg[plugin_name] = enabled
     data["plugins_enabled"] = plugins_cfg
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _atomic_save(data)
 
 
 def get_agent_mode_enabled() -> bool:
