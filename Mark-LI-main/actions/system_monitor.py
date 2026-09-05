@@ -162,13 +162,26 @@ class SystemMonitor:
 
         alerts: list[str] = []
 
-        if cpu >= self.thresholds["cpu"]:
+        # On CPU-only Macs the assistant's OWN local brain pins the CPU at
+        # ~100% whenever it loads or thinks — that isn't "heavy apps". Stand
+        # down (and reset the streak) while a local request is in flight.
+        brain_busy = False
+        try:
+            from core.llm import local_busy
+            brain_busy = local_busy()
+        except Exception:
+            pass
+
+        if brain_busy:
+            self._cpu_streak = 0
+        elif cpu >= self.thresholds["cpu"]:
             self._cpu_streak += 1
             if self._cpu_streak >= _CPU_STREAK and self._can_alert("cpu"):
+                # Spoken aloud verbatim — keep it natural, no markup, no
+                # instructions to the model (speak() does not rephrase).
                 alerts.append(
-                    f"[SYSTEM_ALERT] CPU usage has been critically high ({cpu:.0f}%) "
-                    "for several seconds. Warn the user in their language and suggest "
-                    "closing heavy applications."
+                    f"Heads up — CPU usage has been at {cpu:.0f}% for a "
+                    "while now. Consider closing applications you're not using."
                 )
                 self._record("cpu")
                 self._cpu_streak = 0
@@ -177,23 +190,22 @@ class SystemMonitor:
 
         if ram >= self.thresholds["ram"] and self._can_alert("ram"):
             alerts.append(
-                f"[SYSTEM_ALERT] RAM is at {ram:.0f}% — nearly exhausted. "
-                "Warn the user in their language and suggest freeing memory."
+                f"Memory is at {ram:.0f}% — nearly full. Closing unused "
+                "apps or browser tabs will keep things speedy."
             )
             self._record("ram")
 
-        if temp > 0 and temp >= self.thresholds["temp"] and self._can_alert("temp"):
+        if (not brain_busy and temp > 0
+                and temp >= self.thresholds["temp"] and self._can_alert("temp")):
             alerts.append(
-                f"[SYSTEM_ALERT] CPU temperature is {temp:.0f}°C — above the safe limit. "
-                "Warn the user in their language and advise reducing system load "
-                "or checking cooling."
+                f"Your computer is running hot — {temp:.0f} degrees. "
+                "Consider pausing heavy work for a bit."
             )
             self._record("temp")
 
         if gpu >= 0 and gpu >= self.thresholds["gpu"] and self._can_alert("gpu"):
             alerts.append(
-                f"[SYSTEM_ALERT] GPU load is at {gpu:.0f}%. "
-                "Briefly inform the user in their language."
+                f"Graphics load is at {gpu:.0f}%."
             )
             self._record("gpu")
 

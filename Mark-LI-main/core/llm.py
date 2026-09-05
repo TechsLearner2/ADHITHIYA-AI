@@ -127,6 +127,23 @@ def _keep_alive() -> str:
     return model("local_keep_alive") or _LOCAL_KEEP_ALIVE
 
 
+_LOCAL_BUSY = 0   # >0 while a local (Ollama) request or model load is in flight
+
+
+def _mark_local_busy(delta: int) -> None:
+    global _LOCAL_BUSY
+    _LOCAL_BUSY = max(0, _LOCAL_BUSY + delta)
+
+
+def local_busy() -> bool:
+    """True while a local chat request or pre-warm is running.
+
+    On CPU-only Macs that work legitimately pins the CPU at ~100% for the
+    whole reply — callers like the system monitor stand down instead of
+    telling the user to "close heavy apps" (the heavy app is the brain)."""
+    return _LOCAL_BUSY > 0
+
+
 def prewarm_local() -> bool:
     """Load the local brain into RAM now (background thread) and ask Ollama
     to keep it resident for the keep-alive window.
@@ -146,6 +163,7 @@ def prewarm_local() -> bool:
         url = "http://localhost:11434/api/generate"
         body = json.dumps(_prewarm_payload()).encode("utf-8")
         req = _req.Request(url, data=body, headers={"Content-Type": "application/json"})
+        _mark_local_busy(1)
         try:
             # The load itself can take minutes on CPU-only Macs; this thread
             # is a daemon, so however long it takes, startup is never blocked.
@@ -155,6 +173,8 @@ def prewarm_local() -> bool:
                   f"(kept for {_keep_alive()}).")
         except Exception as e:  # noqa: BLE001 — warming is best-effort
             print(f"[LLM] Local pre-warm skipped: {e}")
+        finally:
+            _mark_local_busy(-1)
 
     threading.Thread(target=_warm, daemon=True, name="ollama-prewarm").start()
     return True
@@ -395,6 +415,9 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
             if max_tokens:
                 kwargs["max_tokens"] = max_tokens
 
+            _local_req = provider() == "local"
+            if _local_req:
+                _mark_local_busy(1)
             try:
                 resp = client.chat.completions.create(**kwargs)
             except Exception as e:  # noqa: BLE001
@@ -415,6 +438,9 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
                         "is still loading, give it a minute and try again."
                     ) from e
                 raise
+            finally:
+                if _local_req:
+                    _mark_local_busy(-1)
 
             msg = resp.choices[0].message
             tool_calls = []

@@ -256,6 +256,129 @@ def test_chat_leaves_messages_alone_without_the_toggle(monkeypatch):
     assert seen["kwargs"]["messages"] == msgs         # untouched without flag
 
 
+# ── system monitor: never blame the user for our own brain thinking ──────────
+
+def test_chat_marks_local_busy_and_clears_it_after(monkeypatch):
+    """While a local chat request is in flight local_busy() must be True, and
+    it must return to False even when the request raises (finally)."""
+    from types import SimpleNamespace
+
+    from core import llm
+
+    monkeypatch.setattr(llm, "_LOCAL_BUSY", 0)
+    seen: dict = {}
+
+    class _Completions:
+        def create(self, **kwargs):
+            seen["busy_during_request"] = llm.local_busy()
+            raise ConnectionError("[Errno 61] Connection refused")
+
+    monkeypatch.setattr(llm, "_client",
+                        lambda: SimpleNamespace(chat=SimpleNamespace(
+                            completions=_Completions())))
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "_chat_models", lambda: ["qwen3:8b"])
+    monkeypatch.setattr(llm, "_cfg", lambda: {})
+
+    with pytest.raises(RuntimeError):
+        llm.chat([{"role": "user", "content": "hi"}])
+
+    assert seen["busy_during_request"] is True
+    assert llm.local_busy() is False                 # finally restored it
+
+
+def test_prewarm_marks_busy_while_loading(monkeypatch):
+    import threading
+    import time
+    import urllib.request
+
+    from core import llm
+
+    monkeypatch.setattr(llm, "_LOCAL_BUSY", 0)
+    seen: dict = {}
+    done = threading.Event()
+
+    class _Resp:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(req, timeout=None):
+        seen["busy_during_warm"] = llm.local_busy()
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "chat_model", lambda: "qwen3:8b")
+    monkeypatch.setattr(llm, "_cfg", lambda: {})
+
+    assert llm.prewarm_local() is True
+    for _ in range(100):             # wait for the daemon thread to finish
+        if llm.local_busy() is False and "busy_during_warm" in seen:
+            break
+        time.sleep(0.02)
+
+    assert seen.get("busy_during_warm") is True
+    assert llm.local_busy() is False
+
+
+def _silent_psutil(monkeypatch, cpu, ram, temp, gpu):
+    from types import SimpleNamespace
+
+    from actions import system_monitor as sm
+
+    monkeypatch.setattr(sm.psutil, "cpu_percent", lambda interval=None: cpu)
+    monkeypatch.setattr(sm.psutil, "virtual_memory",
+                        lambda: SimpleNamespace(percent=ram))
+    monkeypatch.setattr(sm, "_get_cpu_temp", lambda: temp)
+    monkeypatch.setattr(sm, "_get_gpu_usage", lambda: gpu)
+    return sm
+
+
+def test_monitor_silent_while_local_brain_busy(monkeypatch):
+    """A pinned CPU during local inference (or pre-warm) is the brain working,
+    not a runaway app — no alert, and the streak resets so no deferred alert
+    fires the instant it finishes unless CPU stays high for real."""
+    sm = _silent_psutil(monkeypatch, cpu=99.0, ram=50.0, temp=0.0, gpu=-1.0)
+    monkeypatch.setattr("core.llm.local_busy", lambda: True)
+
+    mon = sm.SystemMonitor()
+    for _ in range(sm._CPU_STREAK + 2):
+        assert mon.check() is None
+
+
+def test_monitor_alerts_natural_text_when_idle(monkeypatch):
+    import time
+
+    sm = _silent_psutil(monkeypatch, cpu=95.0, ram=50.0, temp=0.0, gpu=-1.0)
+    monkeypatch.setattr("core.llm.local_busy", lambda: False)
+
+    mon = sm.SystemMonitor()
+    # cooldown treats "never alerted" as t=0, so on a freshly booted machine
+    # (<5 min uptime) alerts are intentionally still in grace — age the clock
+    mon._last_alert["cpu"] = time.monotonic() - (sm._COOLDOWN + 1)
+    alert = None
+    for _ in range(sm._CPU_STREAK + 2):
+        alert = mon.check() or alert   # keep the first alert; later checks cool down
+    assert alert
+    assert "CPU" in alert
+    # speak() pipes this verbatim into TTS — internal instructions and
+    # markup must never reach the user's ears
+    assert "Warn the user" not in alert
+    assert "[SYSTEM_ALERT]" not in alert
+
+
+def test_monitor_temp_alert_also_paused_while_busy(monkeypatch):
+    sm = _silent_psutil(monkeypatch, cpu=50.0, ram=50.0, temp=95.0, gpu=-1.0)
+    monkeypatch.setattr("core.llm.local_busy", lambda: True)
+    mon = sm.SystemMonitor()
+    for _ in range(sm._CPU_STREAK + 2):
+        assert mon.check() is None
+
+
 # ── dashboard thread → QR overlay must hop to the GUI thread ─────────────────
 
 def test_local_failure_message_carries_the_cause(monkeypatch):
