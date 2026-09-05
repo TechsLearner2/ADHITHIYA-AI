@@ -121,3 +121,75 @@ def test_api_key_file_is_private_and_atomic(monkeypatch, tmp_path):
     # atomic save leaves no temp file behind
     leftovers = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
     assert leftovers == []
+
+
+# ── local mode: pre-warm the Ollama model so first questions don't stall ─────
+
+def test_prewarm_ignored_outside_local_mode(monkeypatch):
+    from core import llm
+    monkeypatch.setattr(llm, "provider", lambda: "groq")
+    assert llm.prewarm_local() is False
+
+
+def test_prewarm_payload_requests_long_keepalive(monkeypatch):
+    from core import llm
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "chat_model", lambda: "qwen3:8b")
+    payload = llm._prewarm_payload()
+    assert payload["model"] == "qwen3:8b"
+    assert payload["prompt"] == ""                     # load only, no generation
+    assert payload["keep_alive"] == llm._LOCAL_KEEP_ALIVE
+    assert payload["keep_alive"].endswith(("m", "h"))  # a real duration, not ""
+
+
+def test_prewarm_posts_keepalive_request(monkeypatch):
+    """The background thread must actually POST to /api/generate (best-effort,
+    never raising into the caller)."""
+    import threading
+    import urllib.request
+
+    from core import llm
+
+    seen = {}
+    done = threading.Event()
+
+    class _Resp:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        seen["timeout"] = timeout
+        done.set()
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "chat_model", lambda: "qwen3:8b")
+
+    assert llm.prewarm_local() is True
+    assert done.wait(2), "pre-warm thread never issued its request"
+    assert seen["url"].endswith("/api/generate")
+    assert seen["body"]["model"] == "qwen3:8b"
+    assert seen["body"]["keep_alive"] == llm._LOCAL_KEEP_ALIVE
+    assert seen["timeout"] >= 120   # room for a slow CPU cold load
+
+
+def test_prewarm_survives_network_failure(monkeypatch):
+    """A dead Ollama must not leak an exception from the warm-up thread."""
+    import urllib.request
+
+    from core import llm
+
+    def dead_urlopen(req, timeout=None):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", dead_urlopen)
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "chat_model", lambda: "qwen3:8b")
+    assert llm.prewarm_local() is True   # started; failure logged, not raised

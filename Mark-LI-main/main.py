@@ -2161,7 +2161,7 @@ def main():
         ui.wait_for_api_key()
         assistant = AdhithiyaAssistant(ui)
         try:
-            from core.llm import provider, _ollama_health
+            from core.llm import provider, _ollama_health, prewarm_local
             if provider() == "local":
                 up, models = _ollama_health()
                 if up:
@@ -2169,6 +2169,10 @@ def main():
                                  f"{models or 'none yet (run: ollama pull qwen3:8b)'}")
                     print(f"[ADHITHIYA] Local mode: Ollama reachable — models pulled: "
                           f"{models or 'none yet (run: ollama pull qwen3:8b)'}")
+                    if prewarm_local():
+                        ui.write_log("SYS: ♨ Warming the local model in the "
+                                     "background — the first load takes a "
+                                     "minute, then it stays warm.")
                 else:
                     ui.write_log("SYS: ⚠ Ollama NOT reachable — open the Ollama "
                                  "app (ollama.com) and pull a model.")

@@ -105,6 +105,56 @@ def _ollama_health() -> tuple[bool, list[str]]:
         return False, []
 
 
+# How long a pre-warmed model stays in RAM. Ollama's 5-minute default evicts
+# the brain after every coffee break, forcing a ~90s cold load (measured on an
+# Intel MacBook Pro, qwen3:8b) onto the next question — which reads as
+# "Ollama isn't answering". 30 minutes matches a working session; override
+# via the "local_keep_alive" config key (e.g. "2h", "45m").
+_LOCAL_KEEP_ALIVE = "30m"
+
+
+def _prewarm_payload() -> dict:
+    """Body for the keep-alive warm-up POST (see prewarm_local)."""
+    return {"model": chat_model(), "prompt": "", "keep_alive": _keep_alive()}
+
+
+def _keep_alive() -> str:
+    return model("local_keep_alive") or _LOCAL_KEEP_ALIVE
+
+
+def prewarm_local() -> bool:
+    """Load the local brain into RAM now (background thread) and ask Ollama
+    to keep it resident for the keep-alive window.
+
+    The empty prompt generates nothing — the call's real job is the load plus
+    the long keep_alive, so the FIRST question after launch (and after any
+    idle break) skips the cold-load tax. Best-effort: never raises, never
+    blocks startup. Returns True if a warm-up was started, False when not in
+    local mode.
+    """
+    if provider() != "local":
+        return False
+    import threading
+    from urllib import request as _req
+
+    def _warm():
+        url = "http://localhost:11434/api/generate"
+        body = json.dumps(_prewarm_payload()).encode("utf-8")
+        req = _req.Request(url, data=body, headers={"Content-Type": "application/json"})
+        try:
+            # The load itself can take minutes on CPU-only Macs; this thread
+            # is a daemon, so however long it takes, startup is never blocked.
+            with _req.urlopen(req, timeout=300.0) as r:
+                r.read()
+            print(f"[LLM] Local model {chat_model()!r} is warm "
+                  f"(kept for {_keep_alive()}).")
+        except Exception as e:  # noqa: BLE001 — warming is best-effort
+            print(f"[LLM] Local pre-warm skipped: {e}")
+
+    threading.Thread(target=_warm, daemon=True, name="ollama-prewarm").start()
+    return True
+
+
 def _local_installed_models() -> list[str]:
     """Models currently pulled in Ollama (GET /api/tags). [] if Ollama is off."""
     return _ollama_health()[1]
