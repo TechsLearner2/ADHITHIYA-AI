@@ -8,9 +8,25 @@
 # ─────────────────────────────────────────────────────────────────────────────
 cd "$(dirname "$0")"
 
+# ── Detect the OS once (package pins + Python preference depend on it) ──────
+MACOS12=0
+if [ "$(uname -s)" = "Darwin" ]; then
+  OS_MAJOR=$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)
+  if [ -n "$OS_MAJOR" ] && [ "$OS_MAJOR" -lt 13 ] 2>/dev/null; then
+    MACOS12=1
+  fi
+fi
+
 # ── Pick a working Python (3.11–3.13 recommended) ────────────────────────────
+# On macOS 12, Python 3.12 comes FIRST when installed: fully-offline hearing
+# (faster-whisper) needs it — its onnxruntime dependency has no Python 3.13
+# build for macOS older than 13.
+PY_CANDIDATES="python3.13 python3.12 python3.11 python3"
+if [ "$MACOS12" = "1" ]; then
+  PY_CANDIDATES="python3.12 python3.13 python3.11 python3"
+fi
 PYTHON_BIN=""
-for PY in python3.13 python3.12 python3.11 python3; do
+for PY in $PY_CANDIDATES; do
   if command -v "$PY" >/dev/null 2>&1 && "$PY" -c "import sys" >/dev/null 2>&1; then
     PYTHON_BIN="$PY"
     break
@@ -25,12 +41,9 @@ fi
 
 # ── Compatibility: pick packages that match this macOS version ───────────────
 REQ_FILE="requirements.txt"
-if [ "$(uname -s)" = "Darwin" ]; then
-  OS_MAJOR=$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)
-  if [ -n "$OS_MAJOR" ] && [ "$OS_MAJOR" -lt 13 ] 2>/dev/null; then
-    REQ_FILE="requirements-macos12.txt"
-    echo "→ macOS $OS_MAJOR detected — using macOS 12-compatible packages."
-  fi
+if [ "$MACOS12" = "1" ]; then
+  REQ_FILE="requirements-macos12.txt"
+  echo "→ macOS $OS_MAJOR detected — using macOS 12-compatible packages."
 fi
 
 PYVER=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
@@ -48,6 +61,16 @@ elif ! .venv/bin/python -c "import sys" >/dev/null 2>&1; then
   echo "→ Old environment is broken (its Python was removed) — rebuilding…"
   rm -rf .venv
   NEED_NEW=1
+fi
+# A 3.13 venv on macOS 12 can't host offline hearing — if Python 3.12 has
+# since been installed, rebuild the environment on it (one time).
+if [ "$NEED_NEW" = "0" ] && [ "$MACOS12" = "1" ] && [ "$PYVER" = "3.12" ]; then
+  VENV_VER=$(./.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "?")
+  if [ "$VENV_VER" != "3.12" ]; then
+    echo "→ Rebuilding environment on Python 3.12 (enables fully-offline hearing)…"
+    rm -rf .venv
+    NEED_NEW=1
+  fi
 fi
 if [ "$NEED_NEW" = "1" ]; then
   echo "→ First run: creating environment…"

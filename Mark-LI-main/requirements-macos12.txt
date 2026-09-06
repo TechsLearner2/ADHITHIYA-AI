@@ -22,6 +22,10 @@ opencv-python==4.10.0.84
 
 sounddevice
 openai>=1.40
+# Fully-offline hearing (no Groq key needed): local Whisper STT. Needs the
+# Python 3.12 venv the launcher builds on macOS 12 — pip automatically picks
+# the newest onnxruntime/ctranslate2 whose macOS wheels still allow macOS 12.
+faster-whisper
 pillow
 requests
 beautifulsoup4
