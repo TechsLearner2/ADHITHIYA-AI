@@ -92,7 +92,7 @@ LOCAL_WHISPER_MODEL  = "base"                        # faster-whisper model (tin
 # user has actually pulled (lower index = picked first).
 _LOCAL_PREFERENCE    = [
     "qwen3:14b", "qwen3:8b", "qwen2.5:7b", "llama3.1:8b",
-    "qwen3:4b", "gemma3:4b", "llama3.2", "phi4-mini",
+    "qwen3:4b", "gemma3:4b", "phi3:mini", "llama3.2", "phi4-mini",
 ]
 
 
@@ -339,6 +339,10 @@ def _local_no_think_messages(messages: list[dict]) -> list[dict]:
     last user message. Returns a new list — the caller's messages are never
     mutated (the dashboard/memory may hold the same dicts)."""
     if provider() != "local" or not _no_think_enabled():
+        return messages
+    # /no_think is a Qwen3 soft switch — other models (phi3, llama, …) don't
+    # produce <think> blocks and would just read it as prompt noise.
+    if "qwen" not in str(chat_model()).lower():
         return messages
     msgs = list(messages)
     idx = next((i for i, m in enumerate(msgs) if m.get("role") == "system"), None)

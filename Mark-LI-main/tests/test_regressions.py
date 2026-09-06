@@ -256,6 +256,24 @@ def test_chat_leaves_messages_alone_without_the_toggle(monkeypatch):
     assert seen["kwargs"]["messages"] == msgs         # untouched without flag
 
 
+def test_no_think_switch_skips_non_qwen_models(monkeypatch):
+    """/no_think is a Qwen3 soft switch — phi3 (and friends) neither emit
+    <think> blocks nor understand the switch, so their prompts stay clean."""
+    from core import llm
+
+    monkeypatch.setattr(llm, "provider", lambda: "local")
+    monkeypatch.setattr(llm, "_cfg", lambda: {"local_no_think": True})
+
+    phi = [{"role": "user", "content": "hi"}]
+    monkeypatch.setattr(llm, "chat_model", lambda: "phi3:mini")
+    assert llm._local_no_think_messages(phi) is phi   # untouched
+
+    qwen = [{"role": "system", "content": "You are ADHITHIYA."}]
+    monkeypatch.setattr(llm, "chat_model", lambda: "qwen3:8b")
+    out = llm._local_no_think_messages(qwen)
+    assert out[0]["content"].endswith("/no_think")     # qwen still gets it
+
+
 # ── system monitor: never blame the user for our own brain thinking ──────────
 
 def test_chat_marks_local_busy_and_clears_it_after(monkeypatch):
