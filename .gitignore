@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Runtime / secrets (never commit keys)
+config/api_keys.json
+~/.adhithiya/
+.env
+
+# PyInstaller build output
+build/
+dist/
+*.spec.bak
