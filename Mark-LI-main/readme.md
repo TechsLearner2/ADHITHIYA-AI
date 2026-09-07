@@ -40,17 +40,21 @@ a provider, and it never sends your voice or screen anywhere.
 
 1. Launch ADHITHIYA.
 2. On the setup screen click **"INSTALL BUILT-IN BRAIN — free, offline, no key"**.
-3. Watch the progress in the log (one-time, resumable download) — when the
-   brain is online ADHITHIYA says so, and you can talk to it immediately.
+3. **That's it.** The app does everything from here and reports each step in
+   the log: installs `cmake` if missing, opens Apple's Xcode installer if
+   needed (click **Install** once), compiles the engine (macOS 12, one-time),
+   downloads the model (auto-sized, resumable), starts the brain and warms
+   it. Offline hearing (`faster-whisper`) is also installed automatically
+   when Python 3.12 is present. When the log says the brain is online, talk
+   to it.
 
-Or skip the UI: set `"provider": "builtin"` in
-`~/.adhithiya/config/api_keys.json`, or install from the terminal:
+Power users can run the same full setup from the terminal in one command
+(also writes `"provider": "builtin"` into the config):
 
 ```
-python3 -m core.builtin_brain install          # engine + model (auto-sized)
+python3 -m core.builtin_brain bootstrap
 python3 -m core.builtin_brain status           # what's installed
 python3 -m core.builtin_brain start / stop / restart
-python3 -m core.builtin_brain build            # compile engine (old macOS only)
 ```
 
 **Model profiles** — your machine's power dial (set `"builtin_profile"` in
@@ -93,24 +97,23 @@ official llama.cpp binaries):
 | 12.x – 14.1 | no official prebuilt can call tools → **compile once** (below) |
 
 **Built-in brain on macOS 12/13 (e.g. Monterey on older Macs):** official
-llama.cpp binaries with tool calling only exist for macOS 14.2+, so the first
-install asks you to compile the engine on your Mac instead — free and
-one-time (~5–20 min):
+llama.cpp binaries with tool calling only exist for macOS 14.2+, so the app
+**compiles the engine on your Mac instead** — fully automatic too. When you
+click the setup button it opens Apple's "Xcode Command Line Tools" installer
+once (click **Install**, ~10 min), installs `cmake` itself, then compiles
+(~15–25 min, one time). Every step is in the log. If you prefer the terminal:
 
 ```
-xcode-select --install                 # Xcode Command Line Tools
-python3 -m pip install cmake           # tiny pip package, no brew needed
-python3 -m core.builtin_brain build    # downloads source, compiles llama-server
-python3 -m core.builtin_brain install  # then fetch the model (~1 GB for 'fast')
-python3 -m core.builtin_brain start
+python3 -m core.builtin_brain bootstrap   # = everything (see above)
 ```
 
 Everything after that is identical: model download is resumable, the brain
 runs offline, and the app starts/warms it automatically at launch.
 
 Hearing & voice are the same as Ollama local mode: ADHITHIYA speaks with your
-Mac's `say` voice for free; hearing prefers local `faster-whisper` if
-installed, otherwise it will happily use a free Groq key **if you add one**
+Mac's `say` voice for free. For hearing, the app auto-installs offline
+`faster-whisper` when running on Python 3.12 (the launcher prefers it on
+macOS 12); otherwise it will happily use a free Groq key **if you add one**
 (the brain itself never needs it). Vision and image generation still need a
 cloud provider — the built-in brain is a text brain.
 

@@ -710,6 +710,140 @@ def _extract_tree(src: Path, dest: Path) -> None:
                 t.extract(member, dest)
 
 
+# ── fully-automatic setup (the "just run it" path) ──────────────────────────
+
+def _clt_installed() -> bool:
+    """True when Xcode Command Line Tools are present (macOS only)."""
+    if sys.platform != "darwin":
+        return True
+    try:
+        r = subprocess.run(["xcode-select", "-p"], capture_output=True,
+                           text=True, timeout=10)
+        return r.returncode == 0 and bool(r.stdout.strip())
+    except Exception:
+        return False
+
+
+def _ensure_xcode_clt(progress=None, wait_seconds: int = 1800) -> None:
+    """Make sure Xcode Command Line Tools exist — auto-pops Apple's installer
+    dialog and waits (progress every ~30 s) for the user to click Install."""
+    if sys.platform != "darwin" or _clt_installed():
+        return
+    if progress:
+        progress("Xcode Command Line Tools are missing — opening Apple's "
+                 "installer…")
+    try:
+        subprocess.run(["xcode-select", "--install"], timeout=10,
+                       capture_output=True)
+    except Exception:
+        pass            # dialog may already be up; polling handles it
+    waited = 0
+    while not _clt_installed() and waited < wait_seconds:
+        time.sleep(5)
+        waited += 5
+        if progress and waited % 30 == 0:
+            progress("Waiting for Xcode Command Line Tools — if Apple's "
+                     "dialog is open, click Install (this can take 10+ min).")
+    if not _clt_installed():
+        raise RuntimeError(
+            "Xcode Command Line Tools still aren't installed. Please run in "
+            "Terminal: xcode-select --install, click Install, then relaunch "
+            "ADHITHIYA.")
+    if progress:
+        progress("Xcode Command Line Tools ready.")
+
+
+def _ensure_cmake(progress=None) -> None:
+    """Make sure cmake exists — installs it via pip into the active Python
+    (no admin needed) when missing. Skips gracefully when frozen (.app)."""
+    if shutil.which("cmake"):
+        return
+    if getattr(sys, "frozen", False):
+        raise RuntimeError(
+            "cmake is missing and this packaged app can't install it. Run in "
+            "Terminal: python3 -m pip install cmake  (one time).")
+    if progress:
+        progress("Installing cmake (one-time, ~35 MB, no admin needed)…")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--quiet", "cmake"],
+        capture_output=True, text=True, timeout=900)
+    if r.returncode != 0 or not shutil.which("cmake"):
+        raise RuntimeError(
+            "Couldn't install cmake automatically ("
+            + (r.stderr or r.stdout or "pip failed")[-300:]
+            + "). Run in Terminal: python3 -m pip install cmake")
+    if progress:
+        progress("cmake ready.")
+
+
+def bootstrap(progress=None, configure: bool = False,
+              profile: str | None = None) -> dict:
+    """Get the built-in brain fully working, whatever state it's in — the
+    'just run it' entry point used by the app and the CLI.
+
+    Chain (each step skipped when already done):
+      Xcode CLT (old-mac builds only) → cmake → compile (macOS < 14.2) or
+      download the engine → download the model → start the server → warm it.
+
+    configure=True also writes provider='builtin' (+ OS) into the app config,
+    so the next launch starts in built-in mode. Returns status().
+    """
+    if configure:
+        _configure_builtin()
+    if progress:
+        progress("Built-in brain setup starting…")
+
+    # Engine
+    if server_binary() is None:
+        if engine_version() is None:
+            # macOS 12/13: no downloadable engine with tools → compile.
+            if progress:
+                progress("This macOS has no ready-made brain engine — "
+                         "compiling one now (one-time, ~15–25 min).")
+            _ensure_xcode_clt(progress)
+            _ensure_cmake(progress)
+            build_engine(progress=progress)
+        else:
+            install_engine(progress)
+    # Model
+    if model_file() is None:
+        install_model(profile, progress=progress)
+    # Run
+    port = ensure_server()
+    warmup(progress=progress)
+    if progress:
+        progress(f"🧠 Brain online at 127.0.0.1:{port} — ADHITHIYA thinks "
+                 "offline: no key, no bill, no internet.")
+    return status()
+
+
+def _configure_builtin() -> None:
+    """Set provider='builtin' (+ detected OS) in ~/.adhithiya config,
+    preserving every existing key."""
+    try:
+        from memory import config_manager as cm
+        data = {}
+        try:
+            if cm.CONFIG_FILE.exists():
+                data = json.loads(cm.CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        if sys.platform == "darwin":
+            data["os_system"] = "mac"
+        elif sys.platform == "win32":
+            data["os_system"] = "windows"
+        else:
+            data["os_system"] = "linux"
+        data["provider"] = "builtin"
+        cm.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cm.CONFIG_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, cm.CONFIG_FILE)
+    except Exception as e:  # noqa: BLE001 — never block bootstrap on this
+        print(f"[BRAIN] note: couldn't auto-write config ({e}) — set "
+              '"provider": "builtin" in ~/.adhithiya/config/api_keys.json')
+
+
 # ── server lifecycle ─────────────────────────────────────────────────────────
 
 _proc: subprocess.Popen | None = None
@@ -929,7 +1063,8 @@ def _cli() -> None:
     ap = argparse.ArgumentParser(prog="python3 -m core.builtin_brain",
                                  description="ADHITHIYA's built-in offline brain")
     ap.add_argument("action", choices=["status", "install", "start",
-                                       "stop", "restart", "build"])
+                                       "stop", "restart", "build",
+                                       "bootstrap"])
     ap.add_argument("--profile", default=None, choices=list(MODEL_PROFILES))
     ap.add_argument("--tag", default=None,
                     help="llama.cpp build tag to compile (default b4600)")
@@ -937,6 +1072,13 @@ def _cli() -> None:
     if args.action == "status":
         for k, v in status().items():
             print(f"{k:14} {v}")
+        return
+    if args.action == "bootstrap":
+        print("⚙️  One-command full setup — engine, model, server, config.\n")
+        bootstrap(progress=lambda m: print("·", m), configure=True,
+                  profile=args.profile)
+        print("\n✅ Done. ADHITHIYA is configured for the built-in brain — "
+              "just launch it (double-click run_adhithiya.command).")
         return
     if args.action == "install":
         print(f"Profile: {args.profile or profile_name()}")

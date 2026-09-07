@@ -1165,9 +1165,9 @@ class SetupOverlay(QWidget):
         """)
         builtin_btn.clicked.connect(self._submit_builtin)
         layout.addWidget(builtin_btn)
-        layout.addWidget(_lbl("model auto-sized for your Mac (≈0.5–2 GB) · one download, then it works "
-                              "100% offline, forever", 7,
-                              color=C.TEXT_DIM))
+        layout.addWidget(_lbl("everything installs automatically — watch the log · macOS 12 "
+                              "compiles once (≈15–25 min), model auto-sized (≈0.5–2 GB)",
+                              7, color=C.TEXT_DIM))
 
         local_btn = QPushButton("💻  RUN FULLY LOCAL — no key needed")
         local_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))

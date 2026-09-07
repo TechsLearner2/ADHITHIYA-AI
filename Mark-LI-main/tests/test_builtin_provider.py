@@ -1,5 +1,6 @@
 """Tests for the built-in offline brain (provider='builtin'). No network."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -194,6 +195,102 @@ def test_build_engine_rejects_bad_tag(monkeypatch, tmp_path):
     monkeypatch.setattr(bb.shutil, "which", lambda _: "/usr/bin/cmake")
     with pytest.raises(RuntimeError):
         bb.build_engine(tag="not-a-tag")
+
+
+# ── automatic bootstrap (the "just run it" path) ────────────────────────────
+
+def test_ensure_cmake_installs_via_pip_when_missing(monkeypatch):
+    calls = {"which": 0, "pip": []}
+
+    def fake_which(_):
+        calls["which"] += 1
+        return None if calls["which"] == 1 else "/usr/bin/cmake"
+
+    def fake_run(cmd, **kw):
+        calls["pip"].append(cmd)
+        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(bb.shutil, "which", fake_which)
+    monkeypatch.setattr(bb.subprocess, "run", fake_run)
+    bb._ensure_cmake()
+    assert any("pip" in c and "cmake" in c for c in calls["pip"])
+
+
+def test_ensure_cmake_skips_when_present(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("pip should not run when cmake exists")
+
+    monkeypatch.setattr(bb.shutil, "which", lambda _: "/usr/bin/cmake")
+    monkeypatch.setattr(bb.subprocess, "run", boom)
+    bb._ensure_cmake()
+
+
+def test_bootstrap_downloads_engine_then_model(monkeypatch):
+    seen = []
+    monkeypatch.setattr(bb, "_cfg", lambda: {})
+    monkeypatch.setattr(bb, "_macos_version", lambda: (15, 5, 0))
+    monkeypatch.setattr(bb, "server_binary", lambda: None)
+    monkeypatch.setattr(bb, "model_file", lambda: None)
+    monkeypatch.setattr(bb, "install_engine",
+                        lambda p=None: seen.append("engine") or "/e/server")
+    monkeypatch.setattr(bb, "install_model",
+                        lambda prof=None, progress=None: seen.append("model") or "/m.gguf")
+    monkeypatch.setattr(bb, "ensure_server", lambda: 18771)
+    monkeypatch.setattr(bb, "warmup", lambda progress=None: True)
+    monkeypatch.setattr(bb, "status", lambda: {"done": True})
+    assert bb.bootstrap()["done"] is True
+    assert seen == ["engine", "model"]
+
+
+def test_bootstrap_compiles_engine_on_old_macos(monkeypatch):
+    """macOS 12: engine_version() None → compile path (CLT + cmake + build)."""
+    seen = []
+    monkeypatch.setattr(bb, "_cfg", lambda: {})
+    monkeypatch.setattr(bb, "_macos_version", lambda: (12, 7, 6))
+    monkeypatch.setattr(bb, "server_binary", lambda: None)
+    monkeypatch.setattr(bb, "model_file", lambda: None)
+    monkeypatch.setattr(bb, "_ensure_xcode_clt", lambda progress=None: seen.append("clt"))
+    monkeypatch.setattr(bb, "_ensure_cmake", lambda progress=None: seen.append("cmake"))
+    monkeypatch.setattr(bb, "build_engine",
+                        lambda progress=None, tag=None: seen.append("build") or "/e/server")
+    monkeypatch.setattr(bb, "install_model",
+                        lambda prof=None, progress=None: seen.append("model") or "/m.gguf")
+    monkeypatch.setattr(bb, "ensure_server", lambda: 18771)
+    monkeypatch.setattr(bb, "warmup", lambda progress=None: True)
+    monkeypatch.setattr(bb, "status", lambda: {"done": True})
+    bb.bootstrap()
+    assert seen == ["clt", "cmake", "build", "model"]
+
+
+def test_bootstrap_skips_when_installed(monkeypatch):
+    seen = []
+    import pathlib
+    fake = pathlib.Path("/nonexistent/llama-server")
+    monkeypatch.setattr(bb, "server_binary", lambda: fake)
+    monkeypatch.setattr(bb, "model_file", lambda: fake)
+    monkeypatch.setattr(bb, "install_engine", lambda p=None: seen.append("engine"))
+    monkeypatch.setattr(bb, "install_model",
+                        lambda prof=None, progress=None: seen.append("model"))
+    monkeypatch.setattr(bb, "ensure_server", lambda: 18771)
+    monkeypatch.setattr(bb, "warmup", lambda progress=None: True)
+    monkeypatch.setattr(bb, "status", lambda: {"done": True})
+    bb.bootstrap()
+    assert seen == []                     # nothing to install → no calls
+
+
+def test_configure_builtin_writes_provider(monkeypatch, tmp_path):
+    from memory import config_manager as cm
+    cfg_file = tmp_path / "api_keys.json"
+    cfg_file.write_text(json.dumps({"provider": "groq",
+                                    "groq_api_key": "gsk-keep"}))
+    monkeypatch.setattr(cm, "CONFIG_FILE", cfg_file)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    bb._configure_builtin()
+    import json as _json
+    data = _json.loads(cfg_file.read_text(encoding="utf-8"))
+    assert data["provider"] == "builtin"
+    assert data["os_system"] == "mac"
+    assert data["groq_api_key"] == "gsk-keep"   # existing keys preserved
 
 
 def test_model_url_custom_override(monkeypatch):

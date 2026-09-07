@@ -2163,6 +2163,54 @@ class AdhithiyaAssistant:
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
 
+def _ensure_offline_hearing(ui) -> None:
+    """Auto-install faster-whisper (offline speech-to-text) when running a
+    no-key provider and the package is missing — best-effort, never blocks.
+
+    On macOS 12 it only works under Python 3.12 (onnxruntime wheels), which
+    the launcher prefers; if the running Python can't host it, we say so and
+    a free Groq key remains the hearing fallback in llm.py.
+    """
+    try:
+        import faster_whisper  # noqa: F401
+        return                    # already installed
+    except Exception:
+        pass
+    if getattr(sys, "frozen", False):
+        ui.write_log("SYS: 🎧 Offline hearing needs faster-whisper — install "
+                     "with: python3.12 -m pip install faster-whisper")
+        return
+    if sys.platform != "darwin":
+        return
+    py = sys.version_info[:2]
+    if py not in ((3, 11), (3, 12)):
+        ui.write_log(f"SYS: 🎧 Fully-offline hearing needs Python 3.12 "
+                     f"(this app runs {py[0]}.{py[1]}). Install Python 3.12 "
+                     f"from python.org and relaunch — the launcher will use "
+                     f"it automatically.")
+        return
+
+    def _install():
+        ui.write_log("SYS: 🎧 Installing offline hearing (faster-whisper, "
+                     "one-time download)…")
+        try:
+            r = _subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--quiet",
+                 "faster-whisper"],
+                capture_output=True, text=True, timeout=1800)
+            if r.returncode == 0:
+                ui.write_log("SYS: 🎧 Offline hearing installed — ADHITHIYA "
+                             "can hear you with no API key.")
+            else:
+                ui.write_log("ERR: 🎧 Hearing install failed — "
+                             + ((r.stderr or r.stdout) or "pip error")[-400:])
+        except Exception as e:  # noqa: BLE001
+            ui.write_log(f"ERR: 🎧 Hearing install failed — {e}")
+
+    threading.Thread(target=_install, daemon=True,
+                     name="hearing-install").start()
+
+
 def main():
     # face.png sits next to the source in dev and inside the bundle when frozen
     face_path = BASE_DIR / "face.png"
@@ -2182,6 +2230,8 @@ def main():
         assistant = AdhithiyaAssistant(ui)
         try:
             from core.llm import provider, _ollama_health, prewarm_local
+            if provider() in ("local", "builtin"):
+                _ensure_offline_hearing(ui)
             if provider() == "local":
                 up, models = _ollama_health()
                 if up:
@@ -2200,49 +2250,26 @@ def main():
                           "open the Ollama app (https://ollama.com) and pull a model.")
             elif provider() == "builtin":
                 # The built-in brain: llama.cpp engine + a GGUF model living in
-                # ~/.adhithiya/brain/. Install once in the background (model size is auto-picked),
-                # then start + warm it so the first question is instant.
+                # ~/.adhithiya/brain/. bootstrap() does EVERYTHING from here:
+                # installs cmake + Xcode CLT if needed, compiles the engine
+                # (macOS 12), downloads the model, starts the server and warms
+                # it — every step logged, each one skipped if already done.
                 def _brain_log(msg: str):
                     ui.write_log("SYS: 🧠 " + msg)
 
                 from core import builtin_brain
-                if builtin_brain.installing():
-                    _brain_log("install is still running (see progress above)…")
-                else:
-                    st = builtin_brain.status()
-                    if not (st.get("engine") and st.get("model")):
-                        _brain_log("one-time install started — downloading the "
-                                   "engine + brain model (a few hundred MB to ~2 GB). Questions are "
-                                   "answered once the brain is online.")
-                        print("[ADHITHIYA] Built-in brain: one-time install started…")
 
-                        def _install_brain():
-                            try:
-                                builtin_brain.install(progress=_brain_log)
-                                builtin_brain.ensure_server()
-                                builtin_brain.warmup(progress=_brain_log)
-                            except Exception as e:
-                                ui.write_log(f"ERR: 🧠 Brain install failed — {e}")
-                                print(f"[ADHITHIYA] Built-in brain install failed: {e}")
+                def _auto_brain():
+                    try:
+                        builtin_brain.bootstrap(progress=_brain_log)
+                    except Exception as e:
+                        ui.write_log(f"ERR: 🧠 {e}")
+                        print(f"[ADHITHIYA] Built-in brain setup failed: {e}")
 
-                        threading.Thread(target=_install_brain, daemon=True,
-                                         name="brain-install").start()
-                    else:
-                        _brain_log("starting… (the first load after boot can "
-                                   "take up to a minute)")
-
-                        def _start_brain():
-                            try:
-                                builtin_brain.ensure_server()
-                                _brain_log("online — ADHITHIYA now thinks "
-                                           "offline: no key, no bill, no internet.")
-                                builtin_brain.warmup(progress=_brain_log)
-                            except Exception as e:
-                                ui.write_log(f"ERR: 🧠 Brain failed to start — {e}")
-                                print(f"[ADHITHIYA] Built-in brain start failed: {e}")
-
-                        threading.Thread(target=_start_brain, daemon=True,
-                                         name="brain-start").start()
+                _brain_log("auto-setup running — watch the log for each step "
+                           "(compile/download/start).")
+                threading.Thread(target=_auto_brain, daemon=True,
+                                 name="brain-bootstrap").start()
         except Exception:
             pass
         try:
