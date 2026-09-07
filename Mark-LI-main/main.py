@@ -1615,7 +1615,7 @@ class AdhithiyaAssistant:
                 if self._vision_cam_active:
                     self._vision_cam_active = False
                     self.ui.stop_camera_stream()
-                if provider() in ("groq", "local"):
+                if provider() in ("groq", "local", "builtin"):
                     # These providers' chat models can't see images directly —
                     # run the vision path separately and feed a description back.
                     desc = await asyncio.to_thread(
@@ -2198,6 +2198,51 @@ def main():
                                  "app (ollama.com) and pull a model.")
                     print("[ADHITHIYA] Local mode: ⚠ Ollama NOT reachable — "
                           "open the Ollama app (https://ollama.com) and pull a model.")
+            elif provider() == "builtin":
+                # The built-in brain: llama.cpp engine + a GGUF model living in
+                # ~/.adhithiya/brain/. Install once in the background (~2 GB),
+                # then start + warm it so the first question is instant.
+                def _brain_log(msg: str):
+                    ui.write_log("SYS: 🧠 " + msg)
+
+                from core import builtin_brain
+                if builtin_brain.installing():
+                    _brain_log("install is still running (see progress above)…")
+                else:
+                    st = builtin_brain.status()
+                    if not (st.get("engine") and st.get("model")):
+                        _brain_log("one-time install started — downloading the "
+                                   "engine + brain model (≈ 2 GB). Questions are "
+                                   "answered once the brain is online.")
+                        print("[ADHITHIYA] Built-in brain: one-time install started…")
+
+                        def _install_brain():
+                            try:
+                                builtin_brain.install(progress=_brain_log)
+                                builtin_brain.ensure_server()
+                                builtin_brain.warmup(progress=_brain_log)
+                            except Exception as e:
+                                ui.write_log(f"ERR: 🧠 Brain install failed — {e}")
+                                print(f"[ADHITHIYA] Built-in brain install failed: {e}")
+
+                        threading.Thread(target=_install_brain, daemon=True,
+                                         name="brain-install").start()
+                    else:
+                        _brain_log("starting… (the first load after boot can "
+                                   "take up to a minute)")
+
+                        def _start_brain():
+                            try:
+                                builtin_brain.ensure_server()
+                                _brain_log("online — ADHITHIYA now thinks "
+                                           "offline: no key, no bill, no internet.")
+                                builtin_brain.warmup(progress=_brain_log)
+                            except Exception as e:
+                                ui.write_log(f"ERR: 🧠 Brain failed to start — {e}")
+                                print(f"[ADHITHIYA] Built-in brain start failed: {e}")
+
+                        threading.Thread(target=_start_brain, daemon=True,
+                                         name="brain-start").start()
         except Exception:
             pass
         try:

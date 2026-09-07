@@ -85,9 +85,13 @@ def save_api_keys(api_key: str, provider: str = "groq") -> None:
         except Exception:
             data = {}
 
-    field = "groq_api_key" if str(provider).strip().lower() == "groq" else "openai_api_key"
-    data["provider"] = str(provider).strip().lower()
-    data[field] = api_key.strip()
+    p = str(provider).strip().lower()
+    data["provider"] = p
+    if p == "groq":
+        data["groq_api_key"] = api_key.strip()
+    elif p == "openai":
+        data["openai_api_key"] = api_key.strip()
+    # local / builtin need no key — the provider flag alone is the config.
 
     _atomic_save(data)
 

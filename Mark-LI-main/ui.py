@@ -55,7 +55,8 @@ def _read_full_config() -> dict:
 
 
 def _active_provider() -> str:
-    """Which AI provider is active: 'groq' (free default) or 'openai'."""
+    """Which AI provider is active: 'groq' (free default), 'openai', 'local'
+    (Ollama) or 'builtin' (the built-in offline brain)."""
     try:
         from core.llm import provider
         return provider()
@@ -1037,7 +1038,8 @@ class _CameraPreview(QWidget):
 
 class SetupOverlay(QWidget):
     done = pyqtSignal(str, str)
-    done_local = pyqtSignal(str)   # fully-local choice — no API key
+    done_local = pyqtSignal(str)    # Ollama local mode — no API key
+    done_builtin = pyqtSignal(str)  # built-in offline brain — no API key
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1077,8 +1079,8 @@ class SetupOverlay(QWidget):
         layout.addSpacing(4)
 
         _prov = _active_provider()
-        if _prov == "local":
-            _key_label = "LOCAL MODE — no key needed (use the button below)"
+        if _prov in ("local", "builtin"):
+            _key_label = "NO-KEY MODE — no key needed (use a button below)"
             _placeholder = "—"
         elif _prov == "groq":
             _key_label = "GROQ API KEY"
@@ -1143,6 +1145,29 @@ class SetupOverlay(QWidget):
         init_btn.clicked.connect(self._submit)
         layout.addWidget(init_btn)
 
+        builtin_btn = QPushButton("🧠  INSTALL BUILT-IN BRAIN — free, offline, no key")
+        builtin_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        builtin_btn.setFixedHeight(34)
+        builtin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        builtin_btn.setToolTip(
+            "Downloads a real neural net onto this Mac once (~2 GB), then\n"
+            "ADHITHIYA thinks entirely offline — no account, no bill,\n"
+            "no internet needed. Apache-2.0 Qwen2.5 model + llama.cpp.")
+        builtin_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.PRI};
+                border: 1px solid {C.PRI_DIM}; border-radius: 3px;
+            }}
+            QPushButton:hover {{
+                background: {C.PRI_GHO}; border: 1px solid {C.PRI};
+            }}
+        """)
+        builtin_btn.clicked.connect(self._submit_builtin)
+        layout.addWidget(builtin_btn)
+        layout.addWidget(_lbl("first launch downloads ≈ 2 GB · after that it works "
+                              "100% offline, forever", 7,
+                              color=C.TEXT_DIM))
+
         local_btn = QPushButton("💻  RUN FULLY LOCAL — no key needed")
         local_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
         local_btn.setFixedHeight(34)
@@ -1161,6 +1186,9 @@ class SetupOverlay(QWidget):
 
     def _submit_local(self):
         self.done_local.emit(self._sel_os)
+
+    def _submit_builtin(self):
+        self.done_builtin.emit(self._sel_os)
 
     def _sel(self, key: str):
         self._sel_os = key
@@ -3910,7 +3938,7 @@ class MainWindow(QMainWindow):
         d = _read_full_config()
         if not d:
             return False
-        if str(d.get("provider", "")).strip().lower() == "local":
+        if str(d.get("provider", "")).strip().lower() in ("local", "builtin"):
             return bool(d.get("os_system"))
         key = d.get("groq_api_key") or d.get("openai_api_key")
         return bool(key) and bool(d.get("os_system"))
@@ -3918,7 +3946,7 @@ class MainWindow(QMainWindow):
     def _show_setup(self):
         ov = SetupOverlay(self.centralWidget())
         cw = self.centralWidget()
-        ow, oh = 460, 390
+        ow, oh = 460, 468
         ov.setGeometry(
             (cw.width()  - ow) // 2,
             (cw.height() - oh) // 2,
@@ -3926,6 +3954,7 @@ class MainWindow(QMainWindow):
         )
         ov.done.connect(self._on_setup_done)
         ov.done_local.connect(self._on_setup_local)
+        ov.done_builtin.connect(self._on_setup_builtin)
         ov.show()
         self._overlay = ov
 
@@ -3951,6 +3980,29 @@ class MainWindow(QMainWindow):
         self._apply_state("LISTENING")
         self._assistant_name = _read_full_config().get("assistant_name", DEFAULT_ASSISTANT_NAME) or DEFAULT_ASSISTANT_NAME
         self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._assistant_name} online.")
+
+    def _on_setup_builtin(self, os_name: str):
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        existing = _read_full_config()
+        API_FILE.write_text(
+            json.dumps({
+                **existing,
+                "provider": "builtin",
+                "os_system": os_name,
+                "assistant_name": existing.get("assistant_name", DEFAULT_ASSISTANT_NAME),
+            }, indent=4),
+            encoding="utf-8",
+        )
+        self._ready = True
+        if self._overlay:
+            self._overlay.hide()
+            self._overlay = None
+        self._apply_state("LISTENING")
+        self._assistant_name = _read_full_config().get("assistant_name", DEFAULT_ASSISTANT_NAME) or DEFAULT_ASSISTANT_NAME
+        self._log.append_log(
+            f"SYS: Initialised. OS={os_name.upper()}. Built-in brain mode — "
+            f"{self._assistant_name} online. The brain install/download "
+            f"continues in the background (see log).")
 
     def _on_setup_local(self, os_name: str):
         os.makedirs(CONFIG_DIR, exist_ok=True)

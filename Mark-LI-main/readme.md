@@ -20,12 +20,62 @@ swapping is a one-line config change.
   (`qwen3:8b` by default — the best 8B-class tool-calling brain of 2026) + your
   Mac's built-in `say` voice. Hearing uses local whisper if installed, otherwise
   your free Groq key. Nothing breaks when a cloud provider changes its mind.
+- **🧠 Built-in brain (NEW — $0 forever, no key, no Ollama):** a real neural
+  net that lives on your Mac. One ~2 GB download and ADHITHIYA thinks entirely
+  offline — no account, no API key, no credit card, no internet needed. See the
+  section below.
 - **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
   `gpt-image-1` image generation (creating images still needs OpenAI).
 
 ---
 
-## 💻 Run fully local (no API key, no internet)
+## 🧠 Run on the built-in brain (no key · no Ollama · no bill)
+
+The assistant now ships with its **own brain**: a small open-weight model
+(Qwen2.5-Instruct, Apache-2.0) run by llama.cpp's `llama-server` — both
+downloaded **once** into `~/.adhithiya/brain/`, then running forever on your
+machine. No account. No subscription. No internet. It cannot be switched off by
+a provider, and it never sends your voice or screen anywhere.
+
+1. Launch ADHITHIYA.
+2. On the setup screen click **"INSTALL BUILT-IN BRAIN — free, offline, no key"**.
+3. Watch the progress in the log (one-time, resumable download) — when the
+   brain is online ADHITHIYA says so, and you can talk to it immediately.
+
+Or skip the UI: set `"provider": "builtin"` in
+`~/.adhithiya/config/api_keys.json`, or install from the terminal:
+
+```
+python3 -m core.builtin_brain install          # engine + model (≈ 2 GB)
+python3 -m core.builtin_brain status           # what's installed
+python3 -m core.builtin_brain start / stop / restart
+```
+
+**Model profiles** (set `"builtin_profile"` in `config/api_keys.json`):
+
+| Profile | Model | Size | Best for |
+|---|---|---|---|
+| `fast` | Qwen2.5 1.5B Q4 | ≈ 1 GB | low-RAM / slower Macs |
+| `balanced` *(default)* | Qwen2.5 3B Q4 | ≈ 2 GB | the right speed/brains trade-off |
+| `strong` | Qwen2.5 7B Q4 | ≈ 4.7 GB | big answers; needs ~8 GB RAM free |
+| `tiny` | Qwen2.5 0.5B Q4 | ≈ 0.5 GB | very old Intel Macs |
+
+On Apple Silicon replies flow at reading speed; on Intel Macs expect a bit of
+thinking time (the `tiny`/`fast` profiles stay snappy). Any other GGUF can be
+used via `"builtin_model_url": "https://…/model.gguf"`.
+
+Hearing & voice are the same as Ollama local mode: ADHITHIYA speaks with your
+Mac's `say` voice for free; hearing prefers local `faster-whisper` if
+installed, otherwise it will happily use a free Groq key **if you add one**
+(the brain itself never needs it). Vision and image generation still need a
+cloud provider — the built-in brain is a text brain.
+
+> **Licence note:** Qwen2.5 is Apache-2.0 (free for any use, including
+> commercial). Engine builds come from [llama.cpp](https://github.com/ggml-org/llama.cpp)
+> (MIT), pinned to a known-good release and fetched from the official GitHub
+> releases at first launch.
+
+---
 
 1. Install **Ollama** from [ollama.com](https://ollama.com) and start it once.
 2. In Terminal, pull a model (one-time, ~5 GB):
@@ -37,7 +87,9 @@ swapping is a one-line config change.
 
    > Interrupted a pull? Just re-run the command — Ollama keeps the partial
    > download and resumes where it left off. ADHITHIYA also auto-detects
-   > **whatever model you've pulled**, so you don't have to edit any config.3. Launch ADHITHIYA and click **"RUN FULLY LOCAL — no key needed"** on the setup
+   > **whatever model you've pulled**, so you don't have to edit any config.
+
+3. Launch ADHITHIYA and click **"RUN FULLY LOCAL — no key needed"** on the setup
    screen — or set `"provider": "local"` in `~/.adhithiya/config/api_keys.json`.
 
 Hearing: ADHITHIYA uses your free Groq key for speech-to-text if one is already
@@ -157,8 +209,14 @@ committed**). Useful options:
 
 | Key | What it does |
 | --- | --- |
-| `provider` | Which brain to use: `groq` (free, default) or `openai` (paid) |
-| `groq_api_key` / `openai_api_key` | API key for the active provider |
+| `provider` | Which brain to use: `groq` (free, default), `builtin` (offline brain built into the app), `local` (Ollama) or `openai` (paid) |
+| `groq_api_key` / `openai_api_key` | API key for the active provider (`builtin`/`local` need none) |
+| `builtin_profile` | Built-in brain size: `tiny`/`fast`/`balanced` (default) /`strong` |
+| `builtin_model_url` | Optional custom GGUF URL — replaces the profile download |
+| `builtin_engine_version` | llama.cpp engine build pin (default `b10839`) |
+| `builtin_port` | Localhost port for the built-in brain service (default `18771`) |
+| `builtin_ctx_size` | Context window in tokens (default `8192`) |
+| `builtin_gpu_layers` | GPU offload layers (Apple Silicon: try `99`; default `0` = CPU) |
 | `assistant_name` / `user_name` | Change what it calls itself / you |
 | `chat_model` | Chat model (Groq default `openai/gpt-oss-120b`; OpenAI default `gpt-4o-mini`) |
 | `stt_model` | Speech-to-text model (Groq default `whisper-large-v3-turbo`; OpenAI default `whisper-1`) |
@@ -196,11 +254,13 @@ shutting down.
 ├── main.py                  # Core loop — voice pipeline (STT → chat/tools → TTS), audio I/O, tool dispatch
 ├── ui.py                    # PyQt6 HUD — orb/face, waveform, log, plugin manager, camera
 ├── core/                    # prompt, plugin loader, voice gate, agent, self-recovery
+│   └── builtin_brain.py     # 🧠 the built-in offline brain — engine+model installer, llama-server lifecycle
 ├── actions/                 # 20+ skills (search, files, vision, reminders, weather…)
 ├── plugins/                 # drop-in skills (calendar, notes, study mode, pomodoro…)
 ├── memory/                  # long-term memory + adaptive learning
 ├── dashboard/               # FastAPI phone-remote (QR pairing)
 └── ~/.adhithiya/config/api_keys.json  # your API key + settings (persists across updates)
+└── ~/.adhithiya/brain/      # the built-in brain: llama.cpp engine + GGUF model (downloaded once)
 └── face.png                 # HUD avatar (replace with your own if you like)
 ```
 

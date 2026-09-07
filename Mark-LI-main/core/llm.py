@@ -20,6 +20,15 @@ interface; switching is a one-line config change, never a code rewrite.
         STT   → local faster-whisper if installed, else your free Groq key
         image → not available offline (needs the paid OpenAI provider)
 
+    provider = "builtin" (the built-in brain — no key, no Ollama, no bill)
+        chat  → a real neural net that lives on this machine: llama.cpp's
+                llama-server + a small open-weight GGUF (Qwen2.5, Apache-2.0),
+                downloaded ONCE (~2 GB) into ~/.adhithiya/brain/ and then
+                runs forever offline. Zero keys, zero accounts, zero cost.
+        TTS   → the Mac's built-in `say` voice
+        STT   → local faster-whisper if installed, else your free Groq key
+        image → not available offline (needs the paid OpenAI provider)
+
 Config (config/api_keys.json):
     provider         — "groq" (default) or "openai"
     groq_api_key     — free key from console.groq.com        (provider=groq)
@@ -35,6 +44,15 @@ Config (config/api_keys.json):
                        (default "30m"; e.g. "2h") — beats the 5-minute eviction
     local_no_think   — true → append Qwen3's /no_think switch: no internal
                        monologue, several× faster replies on CPU-only Macs
+
+    Built-in brain (provider="builtin") — see core/builtin_brain.py for the
+    full installer/lifecycle; config keys:
+        builtin_profile      — tiny | fast | balanced (default) | strong
+        builtin_model_url    — custom GGUF URL instead of a profile
+        builtin_engine_version — llama.cpp build pin (default "b10839")
+        builtin_port         — localhost port (default 18771)
+        builtin_ctx_size     — context tokens (default 8192)
+        builtin_gpu_layers   — GPU offload layers (Apple Silicon: 99; default 0)
 """
 
 from __future__ import annotations
@@ -52,6 +70,15 @@ try:
     from openai import OpenAI as _OpenAI
 except Exception:  # noqa: BLE001 — openai is optional at import time (tests stub _client)
     _OpenAI = None
+
+# The built-in brain (llama-server + GGUF model) is implemented in its own
+# stdlib-only module; here we only borrow its identity constants so this file
+# stays the single door every provider walks through.
+try:
+    from core.builtin_brain import BUILTIN_MAX_TOKENS, BUILTIN_MODEL
+except Exception:  # noqa: BLE001 — import-time safety (never expected)
+    BUILTIN_MAX_TOKENS = 1024
+    BUILTIN_MODEL = "adhithiya-brain"
 
 # ── defaults ──────────────────────────────────────────────────────────────────
 
@@ -198,10 +225,13 @@ def _cfg():
 def get_api_key() -> str:
     """The active provider's key. Reads groq_api_key or openai_api_key
     (provider-aware), so switching providers never needs new plumbing.
-    The local provider needs no key — a non-empty placeholder keeps every
-    downstream 'is a key configured?' guard passing."""
+    The local and builtin providers need no key — a non-empty placeholder
+    keeps every downstream 'is a key configured?' guard passing."""
     data = _cfg()
-    if provider() == "local":
+    p = provider()
+    if p == "builtin":
+        return "builtin"
+    if p == "local":
         return "ollama"
     if provider() == "groq":
         key = data.get("groq_api_key") or data.get("openai_api_key")
@@ -215,10 +245,11 @@ def model(name: str) -> str:
 
 
 def provider() -> str:
-    """Which backend is active: 'groq' (free default), 'openai', or 'local'."""
+    """Which backend is active: 'groq' (free default), 'openai', 'local'
+    (Ollama), or 'builtin' (the built-in offline brain)."""
     data = _cfg()
     p = str(data.get("provider") or "").strip().lower()
-    if p in {"groq", "openai", "local"}:
+    if p in {"groq", "openai", "local", "builtin"}:
         return p
     # Auto-detect: an OpenAI key (and no Groq key) → openai; otherwise groq.
     if data.get("openai_api_key") and not data.get("groq_api_key"):
@@ -235,6 +266,8 @@ def chat_model() -> str:
         return GROQ_CHAT_MODEL
     if p == "local":
         return model("local_model") or LOCAL_CHAT_MODEL
+    if p == "builtin":
+        return BUILTIN_MODEL
     return DEFAULT_CHAT_MODEL
 
 
@@ -304,6 +337,8 @@ def _chat_models() -> list[str]:
             if m not in out:
                 out.append(m)
         return out
+    if p == "builtin":
+        return [chat_model()]   # one brain, one model — no fallback list
     return [chat_model()]
 
 
@@ -383,6 +418,13 @@ def _client():
     p = provider()
     if p == "groq":
         kwargs["base_url"] = GROQ_BASE_URL
+    elif p == "builtin":
+        # llama-server's OpenAI-compatible door; ensure_server raises the
+        # helpful "install the brain" error when it isn't up yet.
+        from core import builtin_brain
+        builtin_brain.ensure_server()
+        kwargs["base_url"] = f"http://127.0.0.1:{builtin_brain.server_port()}/v1"
+        kwargs["timeout"] = 300.0   # cold CPU loads can take a minute+
     elif p == "local":
         kwargs["base_url"] = LOCAL_BASE_URL
         # Cold-loading a 7–8B model into RAM on an Intel Mac can take well over
@@ -394,6 +436,92 @@ def _client():
 
 # ── chat ──────────────────────────────────────────────────────────────────────
 
+def _builtin_chat(messages: list[dict], tools: list[dict] | None = None,
+                  max_tokens: int | None = None,
+                  temp: float | None = None) -> dict:
+    """Chat through the built-in brain (llama-server on localhost).
+
+    Mirrors the shape of chat() → {"text": …, "tool_calls": […]}. Most of the
+    work is making failures human: not-installed-yet, server died, or the
+    request itself — each gets an actionable message instead of a stack trace.
+    """
+    from core import builtin_brain
+
+    try:
+        builtin_brain.ensure_server()
+    except RuntimeError:
+        raise                                # already actionable
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(
+            f"The built-in brain couldn't start ({e}). Run "
+            "`python3 -m core.builtin_brain restart` and try again.") from e
+
+    client = _client()   # provider is "builtin" → localhost base URL
+    if max_tokens is None:
+        max_tokens = BUILTIN_MAX_TOKENS
+    _mark_local_busy(1)
+    last_err: Exception | None = None
+    # Passes: with tools, then (rarely) without when the model glitches on the
+    # tool schema; the last pass retries a bare conversation once.
+    tries = 3
+    for attempt in range(tries):
+        use_tools = bool(tools) and attempt != 1
+        try:
+            kwargs: dict = {
+                "model": chat_model(),
+                "messages": messages,
+                "temperature": temperature() if temp is None else temp,
+                "max_tokens": max_tokens or BUILTIN_MAX_TOKENS,
+            }
+            if use_tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
+            resp = client.chat.completions.create(**kwargs)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            text = str(e).lower()
+            if ("connection" in text or "refused" in text or "reset" in text):
+                # Server died mid-turn (OOM, crash…) — bring it back for next time.
+                builtin_brain.stop_server()
+                raise RuntimeError(
+                    "The built-in brain stopped mid-answer (it may have run "
+                    "out of memory). It has been restarted for next time — "
+                    "try again, or pick a smaller model profile in config "
+                    "('builtin_profile': tiny/fast) if this repeats.") from e
+            if "model_not_found" in text or "unknown model" in text:
+                raise RuntimeError(
+                    "The brain doesn't recognise its model name — restart it "
+                    "with `python3 -m core.builtin_brain restart`.") from e
+            if attempt < tries - 1:
+                continue
+            raise RuntimeError(
+                f"The built-in brain failed this request ({e}). "
+                "Check `~/.adhithiya/brain/server.log` for details.") from e
+        finally:
+            _mark_local_busy(-1)
+
+        msg = resp.choices[0].message
+        tool_calls = []
+        for tc in (msg.tool_calls or []):
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            tool_calls.append({
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": args,
+            })
+        text = _strip_think((msg.content or "").strip())
+        if text or tool_calls:
+            return {"text": text, "tool_calls": tool_calls}
+        # Empty reply: give the brain one plain re-ask before giving up.
+        if attempt < tries - 1:
+            continue
+    print(f"[LLM] Built-in brain returned nothing after {tries} tries.")
+    return {"text": "", "tool_calls": []}
+
+
 def chat(messages: list[dict], tools: list[dict] | None = None,
          max_tokens: int | None = None, temp: float | None = None) -> dict:
     """Send messages and return {"text": str, "tool_calls": [...]}.
@@ -401,6 +529,8 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
     messages: OpenAI chat format (role: system/user/assistant/tool).
     tools:    OpenAI tool format (type:"function" ...).
     """
+    if provider() == "builtin":
+        return _builtin_chat(messages, tools, max_tokens, temp)
     client = _client()
     last_err: Exception | None = None
     # First pass sends tools; if the model can't do function calling we retry
@@ -485,7 +615,11 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
 
 def chat_with_image(prompt: str, image_bytes: bytes, mime: str = "image/png") -> str:
     """Ask a vision-capable model about an image. Returns its text answer."""
-    if provider() == "local":
+    if provider() in ("local", "builtin"):
+        if provider() == "builtin":
+            return ("The built-in brain is text-only (Qwen2.5). Switch provider "
+                    "to Groq or OpenAI in config/api_keys.json if you want "
+                    "screen/camera understanding.")
         return ("This setup runs fully offline and has no vision model yet. "
                 "Pull a vision model in Ollama (e.g. `ollama pull llava`) if you "
                 "want screen/camera understanding.")
@@ -578,8 +712,9 @@ def _fw_model():
 
 
 def _transcribe_local(wav_bytes: bytes) -> str:
-    """STT for provider='local': local faster-whisper first, then the user's
-    free Groq key (hybrid), so hearing works even without the local model."""
+    """STT for provider in ('local','builtin'): local faster-whisper first,
+    then the user's free Groq key (hybrid), so hearing works even without an
+    offline whisper install."""
     import io
 
     # 1) fully-local whisper (if the optional package is installed)
@@ -621,7 +756,7 @@ def _transcribe_local(wav_bytes: bytes) -> str:
 
 def transcribe_wav(wav_bytes: bytes) -> str:
     """Transcribe a WAV audio blob with Whisper. Returns text ('' on failure)."""
-    if provider() == "local":
+    if provider() in ("local", "builtin"):
         return _transcribe_local(wav_bytes)
     client = _client()
     last_err: Exception | None = None
@@ -646,7 +781,7 @@ def transcribe_wav(wav_bytes: bytes) -> str:
 def tts_wav(text: str) -> bytes:
     """Synthesise text as a WAV file (PCM). Raises on failure."""
     global _ORPHEUS_DISABLED
-    if provider() == "local":
+    if provider() in ("local", "builtin"):
         return _say_tts(text)
     if provider() == "groq":
         if not _ORPHEUS_DISABLED:
@@ -824,7 +959,7 @@ def _say_tts(text: str) -> bytes:
 
 def generate_image(prompt: str) -> bytes:
     """Generate an image and return its raw bytes (PNG). Raises on failure."""
-    if provider() == "local":
+    if provider() in ("local", "builtin"):
         raise RuntimeError(
             "Image generation isn't available offline. It needs the paid "
             "OpenAI provider (set config provider to 'openai')."
