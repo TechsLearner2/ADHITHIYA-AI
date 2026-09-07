@@ -86,17 +86,33 @@ def test_default_profile_is_balanced(monkeypatch):
     assert bb.MODEL_PROFILES["balanced"]["url"].endswith(".gguf")
 
 
-def test_profile_auto_adapts_to_weak_hardware(monkeypatch):
-    # the user's real machine: dual-core 2015 Intel MacBook (4 threads, 16 GB)
-    monkeypatch.setattr(bb, "_logical_cores", lambda: 4)
-    monkeypatch.setattr(bb, "_ram_gb", lambda: 16.0)
+def test_profile_auto_adapts_to_hardware(monkeypatch):
+    # RAM is the hard ceiling; cores only pull down when RAM is also scarce.
     monkeypatch.setattr(llm, "_cfg", lambda: {})
-    assert bb.profile_name() == "fast"
+    # the user's real machine: dual-core 2015 Intel MacBook, 16 GB → balanced
     monkeypatch.setattr(bb, "_logical_cores", lambda: 2)
-    assert bb.profile_name() == "tiny"
+    monkeypatch.setattr(bb, "_ram_gb", lambda: 16.0)
+    assert bb.profile_name() == "balanced"
+    # dual-core + 8 GB → fast (keeps it usable)
+    monkeypatch.setattr(bb, "_ram_gb", lambda: 8.0)
+    assert bb.profile_name() == "fast"
+    # any machine under 8 GB → tiny
     monkeypatch.setattr(bb, "_ram_gb", lambda: 6.0)
     monkeypatch.setattr(bb, "_logical_cores", lambda: 8)
     assert bb.profile_name() == "tiny"
+    # 4-core / 16 GB → balanced
+    monkeypatch.setattr(bb, "_ram_gb", lambda: 16.0)
+    monkeypatch.setattr(bb, "_logical_cores", lambda: 4)
+    assert bb.profile_name() == "balanced"
+
+
+def test_max_tokens_configurable(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {})
+    assert bb.max_tokens() == bb.BUILTIN_MAX_TOKENS
+    from memory import config_manager as cm
+    monkeypatch.setattr(cm, "load_api_keys",
+                        lambda: {"builtin_max_tokens": 4096})
+    assert bb.max_tokens() == 4096
 
 
 def test_config_profile_overrides_suggestion(monkeypatch):

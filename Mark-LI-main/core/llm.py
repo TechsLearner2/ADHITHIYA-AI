@@ -75,9 +75,8 @@ except Exception:  # noqa: BLE001 — openai is optional at import time (tests s
 # stdlib-only module; here we only borrow its identity constants so this file
 # stays the single door every provider walks through.
 try:
-    from core.builtin_brain import BUILTIN_MAX_TOKENS, BUILTIN_MODEL
+    from core.builtin_brain import BUILTIN_MODEL
 except Exception:  # noqa: BLE001 — import-time safety (never expected)
-    BUILTIN_MAX_TOKENS = 1024
     BUILTIN_MODEL = "adhithiya-brain"
 
 # ── defaults ──────────────────────────────────────────────────────────────────
@@ -458,7 +457,7 @@ def _builtin_chat(messages: list[dict], tools: list[dict] | None = None,
 
     client = _client()   # provider is "builtin" → localhost base URL
     if max_tokens is None:
-        max_tokens = BUILTIN_MAX_TOKENS
+        max_tokens = builtin_brain.max_tokens()   # configurable cap
     _mark_local_busy(1)
     last_err: Exception | None = None
     # Passes: with tools, then (rarely) without when the model glitches on the
@@ -471,7 +470,7 @@ def _builtin_chat(messages: list[dict], tools: list[dict] | None = None,
                 "model": chat_model(),
                 "messages": messages,
                 "temperature": temperature() if temp is None else temp,
-                "max_tokens": max_tokens or BUILTIN_MAX_TOKENS,
+                "max_tokens": max_tokens or builtin_brain.max_tokens(),
             }
             if use_tools:
                 kwargs["tools"] = tools

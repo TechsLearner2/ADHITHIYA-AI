@@ -218,18 +218,19 @@ def _ram_gb() -> float | None:
 def suggested_profile() -> str:
     """Auto-pick a model size for THIS machine when none is configured.
 
-    Old 2-core Intel Macs and <8 GB-RAM boxes get the smallest brains so the
-    assistant stays conversational; 4-core/8–16 GB boxes get 'fast'; anything
-    beefier (most Apple Silicon) gets 'balanced'. Override anytime with
-    "builtin_profile" in config.
+    Leans toward power: RAM is the hard limit, CPU core count only pulls
+    things down when both cores AND RAM are scarce. 16 GB boxes get the
+    3B 'balanced' brain even if the CPU is modest (≈ 2 GB of RAM, still
+    conversational speed); only < 8 GB or genuinely weak combos drop to
+    tiny/fast. Override anytime with "builtin_profile" in config.
     """
     cores = _logical_cores()
     ram = _ram_gb()
-    if cores is not None and cores <= 2:
-        return "tiny"
     if ram is not None and ram < 8:
         return "tiny"
-    if cores is not None and cores <= 4:
+    if cores is not None and cores <= 2 and (ram is None or ram < 16):
+        return "fast"
+    if cores is not None and cores <= 4 and (ram is None or ram < 12):
         return "fast"
     return "balanced"
 
@@ -262,6 +263,15 @@ def gpu_layers() -> int:
         return int(_cfg().get("builtin_gpu_layers") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def max_tokens() -> int:
+    """Longest single reply the brain may produce (tool loops continue past
+    this). Raise via "builtin_max_tokens" in config for essay-length answers."""
+    try:
+        return int(_cfg().get("builtin_max_tokens") or BUILTIN_MAX_TOKENS)
+    except (TypeError, ValueError):
+        return BUILTIN_MAX_TOKENS
 
 
 # ── platform asset mapping ───────────────────────────────────────────────────
@@ -630,12 +640,15 @@ def build_engine(progress=None, tag: str | None = None) -> str:
             raise RuntimeError(f"Source archive didn't contain {root.name}.")
         os.replace(root, src)
     if progress:
-        progress("Configuring the build (Release, server only)…")
+        progress("Configuring the build (Release, server only, CPU-tuned)…")
     cfg = subprocess.run(
         [cmake, "-S", str(src), "-B", str(bdir),
          "-DCMAKE_BUILD_TYPE=Release",
          "-DLLAMA_CURL=OFF", "-DLLAMA_BUILD_TESTS=OFF",
-         "-DLLAMA_BUILD_EXAMPLES=OFF", "-DLLAMA_BUILD_SERVER=ON"],
+         "-DLLAMA_BUILD_EXAMPLES=OFF", "-DLLAMA_BUILD_SERVER=ON",
+         # Compile tuned for THIS machine's CPU (AVX2 etc.) instead of the
+         # generic baseline — noticeably faster on an older Intel Mac.
+         "-DLLAMA_NATIVE=ON"],
         capture_output=True, text=True)
     if cfg.returncode != 0:
         raise RuntimeError("cmake configure failed:\n"
@@ -653,8 +666,11 @@ def build_engine(progress=None, tag: str | None = None) -> str:
             "may not compile — retry with an older tag, e.g.:\n"
             "    python3 -m core.builtin_brain build --tag b4600\n"
             "Last error:\n" + (bld.stdout + bld.stderr)[-1500:])
-    cand = [p for p in (bdir / "bin").glob("llama-server")] if (bdir / "bin").exists() else []
-    cand += [p for p in bdir.rglob("llama-server")]
+    cand = []
+    for name in ("llama-server", "server"):   # renamed over the eras
+        cand = [p for p in bdir.rglob(name) if p.is_file()]
+        if cand:
+            break
     if not cand:
         raise RuntimeError("Build finished but llama-server binary not found.")
     exe = cand[0]

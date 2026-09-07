@@ -53,18 +53,31 @@ python3 -m core.builtin_brain start / stop / restart
 python3 -m core.builtin_brain build            # compile engine (old macOS only)
 ```
 
-**Model profiles** (set `"builtin_profile"` in `config/api_keys.json`):
+**Model profiles** — your machine's power dial (set `"builtin_profile"` in
+`config/api_keys.json`):
 
-| Profile | Model | Size | Best for |
+| Profile | Model | Size | What you get |
 |---|---|---|---|
-| `fast` | Qwen2.5 1.5B Q4 | ≈ 1 GB | 4-core Intel Macs, low RAM |
-| `balanced` | Qwen2.5 3B Q4 | ≈ 2 GB | Apple Silicon / fast machines |
-| `strong` | Qwen2.5 7B Q4 | ≈ 4.7 GB | big answers; needs ~8 GB RAM free |
-| `tiny` | Qwen2.5 0.5B Q4 | ≈ 0.5 GB | 2-core / very old Intel Macs |
+| `tiny` | Qwen2.5 0.5B Q4 | ≈ 0.5 GB | instant replies, basic chat |
+| `fast` | Qwen2.5 1.5B Q4 | ≈ 1 GB | quick answers, decent smarts |
+| `balanced` | Qwen2.5 3B Q4 | ≈ 2 GB | **recommended default** — strong reasoning + tools, still conversational speed |
+| `strong` | Qwen2.5 7B Q4 | ≈ 4.7 GB | **max power** — biggest model your Mac can hold; replies take patience |
 
-No profile chosen? ADHITHIYA auto-picks for your machine: 2-core CPUs or
-< 8 GB RAM → `tiny`, 4-core / 8–16 GB → `fast`, anything beefier → `balanced`.
-(That's why an Early-2015 MacBook Pro gets `fast`, not the 2 GB model.)
+**How powerful is it really?** On a 2015 dual-core i5 like the Early-2015
+MacBook Pro: `balanced` answers in a few seconds per sentence and is the
+sweet spot; `strong` thinks much harder but each answer can take many seconds
+to minutes. If no profile is configured, ADHITHIYA picks `balanced` for
+16 GB machines (even modest CPUs), `fast` only for ≤ 2-core/8 GB combos, and
+`tiny` under 8 GB RAM. On Apple Silicon, `balanced` is near-instant.
+
+> Tip: for essay-length answers raise the reply cap with
+> `"builtin_max_tokens": 4096` in config (default 1024; tool loops always
+> continue past it).
+
+**Max-power combo when online:** nothing beats cloud brains for zero money.
+With a free Groq key (no card), ADHITHIYA can use `gpt-oss-120b`-class
+models — set `"provider": "groq"` whenever you want the strongest possible
+answers; keep `"provider": "builtin"` for offline/private use.
 
 On Apple Silicon replies flow at reading speed; on Intel Macs expect a bit of
 thinking time (the `tiny`/`fast` profiles stay snappy). Any other GGUF can be
@@ -242,7 +255,8 @@ committed**). Useful options:
 | --- | --- |
 | `provider` | Which brain to use: `groq` (free, default), `builtin` (offline brain built into the app), `local` (Ollama) or `openai` (paid) |
 | `groq_api_key` / `openai_api_key` | API key for the active provider (`builtin`/`local` need none) |
-| `builtin_profile` | Built-in brain size: `tiny`/`fast`/`balanced` (default) /`strong` |
+| `builtin_profile` | Built-in brain size: `tiny`/`fast`/`balanced` (auto default) /`strong` |
+| `builtin_max_tokens` | Longest single reply in tokens (default `1024`; raise for essays) |
 | `builtin_model_url` | Optional custom GGUF URL — replaces the profile download |
 | `builtin_engine_version` | llama.cpp engine build pin (default `b10839`) |
 | `builtin_port` | Localhost port for the built-in brain service (default `18771`) |
