@@ -53,6 +53,11 @@ Config (config/api_keys.json):
         builtin_port         — localhost port (default 18771)
         builtin_ctx_size     — context tokens (default 8192)
         builtin_gpu_layers   — GPU offload layers (Apple Silicon: 99; default 0)
+        builtin_hybrid       — auto-power routing: when a groq_api_key is
+                               saved, heavy turns go to Groq's free cloud brain
+                               and the local brain answers the rest (default:
+                               auto — long/complex prompts only). Set false for
+                               strictly-local/private, true for always-cloud.
 """
 
 from __future__ import annotations
@@ -446,6 +451,17 @@ def _builtin_chat(messages: list[dict], tools: list[dict] | None = None,
     """
     from core import builtin_brain
 
+    # Auto-power: heavy turns go to the free cloud brain when a Groq key is
+    # saved; the local brain stays the fallback (and handles everything when
+    # the machine is offline or the user sets "builtin_hybrid": false).
+    if _hybrid_cloud_requested(messages):
+        try:
+            out = _groq_turn(messages, tools, max_tokens, temp)
+            print("[LLM] Cloud brain answered (auto-power hybrid).")
+            return out
+        except Exception as e:  # noqa: BLE001
+            print(f"[LLM] Cloud brain unavailable ({e}) — falling back to "
+                  "the local built-in brain.")
     try:
         builtin_brain.ensure_server()
     except RuntimeError:
@@ -499,26 +515,138 @@ def _builtin_chat(messages: list[dict], tools: list[dict] | None = None,
         finally:
             _mark_local_busy(-1)
 
-        msg = resp.choices[0].message
-        tool_calls = []
-        for tc in (msg.tool_calls or []):
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except (json.JSONDecodeError, TypeError):
-                args = {}
-            tool_calls.append({
-                "id": tc.id,
-                "name": tc.function.name,
-                "arguments": args,
-            })
-        text = _strip_think((msg.content or "").strip())
-        if text or tool_calls:
-            return {"text": text, "tool_calls": tool_calls}
+        result = _completion_to_result(resp)
+        if result.get("text") or result.get("tool_calls"):
+            return result
         # Empty reply: give the brain one plain re-ask before giving up.
         if attempt < tries - 1:
             continue
     print(f"[LLM] Built-in brain returned nothing after {tries} tries.")
     return {"text": "", "tool_calls": []}
+
+
+def _completion_to_result(resp) -> dict:
+    """Normalise an OpenAI-style completion into {"text", "tool_calls"}."""
+    msg = resp.choices[0].message
+    tool_calls = []
+    for tc in (msg.tool_calls or []):
+        try:
+            args = json.loads(tc.function.arguments or "{}")
+        except (json.JSONDecodeError, TypeError):
+            args = {}
+        tool_calls.append({
+            "id": tc.id,
+            "name": tc.function.name,
+            "arguments": args,
+        })
+    text = (msg.content or "").strip()
+    # Thinking models (qwen3 etc.) can leave `content` empty and put the real
+    # answer in `reasoning_content` — never hand back silence.
+    text = _strip_think(text)
+    if not text and not tool_calls:
+        rc = getattr(msg, "reasoning_content", None)
+        if not rc:
+            rc = (getattr(msg, "model_extra", None) or {}).get("reasoning_content")
+        if rc:
+            text = str(rc).strip()
+    return {"text": text, "tool_calls": tool_calls}
+
+
+# ── builtin ↔ cloud hybrid routing (auto-power) ──────────────────────────────
+
+# Heavy requests deserve a bigger brain than a small local model can offer.
+# When a Groq key is saved, the builtin provider can hand such turns to the
+# free cloud brain and fall back to the local brain if the cloud is offline.
+_CLOUD_KEYWORDS = (
+    "summar", "explain", "analy", "essay", "detailed", "research",
+    "compare and", "write a", "write an", "review", "translate",
+    "debug", "outline", "comprehensive", "in depth", "in-depth",
+    "step by step", "alternatives", "pros and cons", "report",
+)
+_CLOUD_MIN_LEN  = 60     # keywords only count on substantial prompts
+_CLOUD_AUTO_LEN = 140    # anything longer than this → cloud (hybrid auto)
+
+
+def _hybrid_cloud_requested(messages: list[dict]) -> bool:
+    """Should the builtin provider hand this turn to the cloud brain?
+
+    Requires provider == 'builtin' AND a saved groq_api_key. The
+    "builtin_hybrid" config flag sets the policy:
+      false/off   → never (fully local & private)
+      true/on     → always (cloud first, local fallback)
+      unset (auto) → only long turns, or substantial turns with a heavy
+                     keyword (summarize/explain/compare/write…)
+    """
+    if provider() != "builtin":
+        return False
+    key = str(_cfg().get("groq_api_key") or "").strip()
+    if not key:
+        return False
+    flag = str(_cfg().get("builtin_hybrid") or "").strip().lower()
+    if flag in ("false", "0", "no", "off"):
+        return False
+    text = ""
+    for m in reversed(messages or []):
+        c = m.get("content")
+        if isinstance(c, str) and c.strip():
+            text = c.strip()
+            break
+    if flag in ("true", "1", "yes", "on"):
+        return True
+    if len(text) >= _CLOUD_AUTO_LEN:
+        return True
+    low = text.lower()
+    return len(text) >= _CLOUD_MIN_LEN and any(k in low for k in _CLOUD_KEYWORDS)
+
+
+def _groq_turn(messages: list[dict], tools: list[dict] | None = None,
+               max_tokens: int | None = None,
+               temp: float | None = None) -> dict:
+    """One chat turn against Groq's free models — the hybrid partner of the
+    builtin brain. Same shape as chat(). Raises on failure (the caller then
+    falls back to the local brain)."""
+    key = str(_cfg().get("groq_api_key") or "").strip()
+    if not key:
+        raise RuntimeError("Hybrid mode has no Groq key saved.")
+    cls = _OpenAI
+    if cls is None:
+        from openai import OpenAI as cls
+    client = cls(api_key=key, base_url=GROQ_BASE_URL,
+                 max_retries=1, timeout=90.0)
+    last_err: Exception | None = None
+    for model_id in _groq_models():
+        for use_tools in ([True, False] if tools else [True]):
+            kwargs: dict = {
+                "model": model_id,
+                "messages": messages,
+                "temperature": temperature() if temp is None else temp,
+            }
+            if use_tools and tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
+            if max_tokens:
+                kwargs["max_tokens"] = max_tokens
+            try:
+                resp = client.chat.completions.create(**kwargs)
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                if _model_unavailable(e):
+                    print(f"[LLM] Cloud model {model_id!r} unavailable — next…")
+                    break
+                if use_tools and _tools_unsupported(e):
+                    continue
+                raise
+            return _completion_to_result(resp)
+    raise RuntimeError(last_err or RuntimeError("no cloud model available"))
+
+
+def _groq_models() -> list[str]:
+    """Ordered Groq chat candidates: preferred default first, then fallbacks."""
+    out = [GROQ_CHAT_MODEL]
+    for m in GROQ_CHAT_FALLBACKS:
+        if m not in out:
+            out.append(m)
+    return out
 
 
 def chat(messages: list[dict], tools: list[dict] | None = None,
@@ -575,32 +703,7 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
                 if _local_req:
                     _mark_local_busy(-1)
 
-            msg = resp.choices[0].message
-            tool_calls = []
-            for tc in (msg.tool_calls or []):
-                try:
-                    args = json.loads(tc.function.arguments or "{}")
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
-                tool_calls.append({
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "arguments": args,
-                })
-            text = (msg.content or "").strip()
-            # Thinking models behind Ollama inline their monologue as
-            # <think>…</think> INSIDE content (verified against qwen3:8b);
-            # without this the assistant would read its reasoning out loud.
-            text = _strip_think(text)
-            if not text and not tool_calls:
-                # Thinking models (qwen3 etc.) can leave `content` empty and put
-                # the real answer in `reasoning_content`. Never hand back silence.
-                rc = getattr(msg, "reasoning_content", None)
-                if not rc:
-                    rc = (getattr(msg, "model_extra", None) or {}).get("reasoning_content")
-                if rc:
-                    text = str(rc).strip()
-            return {"text": text, "tool_calls": tool_calls}
+            return _completion_to_result(resp)
 
     if provider() == "local" and last_err is not None:
         raise RuntimeError(

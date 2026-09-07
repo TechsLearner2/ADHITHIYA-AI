@@ -78,10 +78,17 @@ to minutes. If no profile is configured, ADHITHIYA picks `balanced` for
 > `"builtin_max_tokens": 4096` in config (default 1024; tool loops always
 > continue past it).
 
-**Max-power combo when online:** nothing beats cloud brains for zero money.
-With a free Groq key (no card), ADHITHIYA can use `gpt-oss-120b`-class
-models — set `"provider": "groq"` whenever you want the strongest possible
-answers; keep `"provider": "builtin"` for offline/private use.
+**Auto-power hybrid (best of both worlds, still $0):** save a free Groq key
+in config and the built-in brain automatically routes **heavy requests**
+(long prompts, "summarize/explain/compare/write…") to Groq's free
+`gpt-oss-120b`-class cloud brain while everyday chat stays on the fast local
+brain — and if the internet is down, the local brain answers everything.
+Control it with `"builtin_hybrid"` in config: `false` = strictly local &
+private, `true` = always cloud-first, unset = auto. (This is exactly the
+"powerful when it matters, private when it counts" mode.)
+
+Max-power all the time: set `"provider": "groq"` — every turn uses the
+~120B-class free brain (needs internet + free key; no card).
 
 On Apple Silicon replies flow at reading speed; on Intel Macs expect a bit of
 thinking time (the `tiny`/`fast` profiles stay snappy). Any other GGUF can be
@@ -260,6 +267,7 @@ committed**). Useful options:
 | `groq_api_key` / `openai_api_key` | API key for the active provider (`builtin`/`local` need none) |
 | `builtin_profile` | Built-in brain size: `tiny`/`fast`/`balanced` (auto default) /`strong` |
 | `builtin_max_tokens` | Longest single reply in tokens (default `1024`; raise for essays) |
+| `builtin_hybrid` | Auto-power routing (`false` = strictly local · `true` = cloud-first · unset = auto). Needs a saved `groq_api_key` |
 | `builtin_model_url` | Optional custom GGUF URL — replaces the profile download |
 | `builtin_engine_version` | llama.cpp engine build pin (default `b10839`) |
 | `builtin_port` | Localhost port for the built-in brain service (default `18771`) |
@@ -313,6 +321,14 @@ shutting down.
 ```
 
 ---
+
+## 🛠️ For developers
+
+- **Architecture:** read [ARCHITECTURE.md](ARCHITECTURE.md) — provider layer,
+  threading model, extension points and known debt.
+- **Tests:** `python -m pytest tests/` (offline-safe, no API keys needed).
+  CI runs syntax checks on every `.py` plus the full suite on Python
+  3.11–3.13 for every push (`.github/workflows/ci.yml`).
 
 ## 🧩 Writing your own plugin
 

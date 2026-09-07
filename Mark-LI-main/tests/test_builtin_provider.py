@@ -326,6 +326,87 @@ def test_unknown_profile_raises():
         bb.install_model("not-a-profile")
 
 
+# ── hybrid cloud routing (auto-power) ───────────────────────────────────────
+
+def _msgs(text: str) -> list[dict]:
+    return [{"role": "system", "content": "sys"},
+            {"role": "user", "content": text}]
+
+
+def test_hybrid_off_without_key(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "builtin"})
+    assert not llm._hybrid_cloud_requested(_msgs("x" * 500))
+
+
+def test_hybrid_never_off_builtin_provider(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "groq",
+                                              "groq_api_key": "gsk-abc"})
+    assert not llm._hybrid_cloud_requested(_msgs("x" * 500))
+
+
+def test_hybrid_auto_long_prompt(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "builtin",
+                                              "groq_api_key": "gsk-abc"})
+    assert llm._hybrid_cloud_requested(_msgs("Please " + "explain in full " * 30))
+
+
+def test_hybrid_auto_keyword(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "builtin",
+                                              "groq_api_key": "gsk-abc"})
+    assert llm._hybrid_cloud_requested(
+        _msgs("Summarize the differences between these three approaches "
+              "and recommend one."))
+    # short/simple stays local
+    assert not llm._hybrid_cloud_requested(_msgs("what time is it"))
+
+
+def test_hybrid_forced_off_and_on(monkeypatch):
+    base = {"provider": "builtin", "groq_api_key": "gsk-abc",
+            "builtin_hybrid": "false"}
+    monkeypatch.setattr(llm, "_cfg", lambda: base)
+    assert not llm._hybrid_cloud_requested(_msgs("x" * 500))
+    monkeypatch.setattr(llm, "_cfg", lambda: {**base, "builtin_hybrid": "true"})
+    assert llm._hybrid_cloud_requested(_msgs("hello"))
+
+
+def test_hybrid_falls_back_to_local_on_cloud_failure(monkeypatch):
+    """_builtin_chat tries the cloud first, then the local brain on failure."""
+    calls = []
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "builtin",
+                                              "groq_api_key": "gsk-abc",
+                                              "builtin_hybrid": "true"})
+    monkeypatch.setattr(llm, "_groq_turn",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline")))
+    monkeypatch.setattr(llm, "_hybrid_cloud_requested", lambda m: True)
+    import types
+    from core import builtin_brain as bb
+
+    class _FakeResp:
+        class _Msg:
+            content = "local answer"
+            tool_calls = []
+
+        choices = [type("C", (), {"message": _Msg()})()]
+
+    class _CC:
+        def create(self, **kw):
+            calls.append(kw.get("model"))
+            return _FakeResp()
+
+    class _Chat:
+        completions = _CC()
+
+    class _FakeClient:
+        chat = _Chat()
+
+    monkeypatch.setattr(llm, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(bb, "ensure_server", lambda: 18771)
+    monkeypatch.setattr(bb, "max_tokens", lambda: 1024)
+    out = llm._builtin_chat([{"role": "user", "content": "hi"}])
+    assert out["text"] == "local answer"
+    assert calls == ["adhithiya-brain"]   # went local after cloud failed
+
+
 # ── config persistence (no key stored for no-key providers) ──────────────────
 
 def test_save_api_keys_builtin_stores_no_key(monkeypatch, tmp_path):
