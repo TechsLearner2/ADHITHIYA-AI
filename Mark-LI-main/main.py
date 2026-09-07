@@ -2200,7 +2200,7 @@ def main():
                           "open the Ollama app (https://ollama.com) and pull a model.")
             elif provider() == "builtin":
                 # The built-in brain: llama.cpp engine + a GGUF model living in
-                # ~/.adhithiya/brain/. Install once in the background (~2 GB),
+                # ~/.adhithiya/brain/. Install once in the background (model size is auto-picked),
                 # then start + warm it so the first question is instant.
                 def _brain_log(msg: str):
                     ui.write_log("SYS: 🧠 " + msg)
@@ -2212,7 +2212,7 @@ def main():
                     st = builtin_brain.status()
                     if not (st.get("engine") and st.get("model")):
                         _brain_log("one-time install started — downloading the "
-                                   "engine + brain model (≈ 2 GB). Questions are "
+                                   "engine + brain model (a few hundred MB to ~2 GB). Questions are "
                                    "answered once the brain is online.")
                         print("[ADHITHIYA] Built-in brain: one-time install started…")
 

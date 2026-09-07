@@ -21,7 +21,8 @@ swapping is a one-line config change.
   Mac's built-in `say` voice. Hearing uses local whisper if installed, otherwise
   your free Groq key. Nothing breaks when a cloud provider changes its mind.
 - **🧠 Built-in brain (NEW — $0 forever, no key, no Ollama):** a real neural
-  net that lives on your Mac. One ~2 GB download and ADHITHIYA thinks entirely
+  net that lives on your Mac. One download (~1–2 GB, model size picked
+  for your hardware) and ADHITHIYA thinks entirely
   offline — no account, no API key, no credit card, no internet needed. See the
   section below.
 - **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
@@ -46,23 +47,53 @@ Or skip the UI: set `"provider": "builtin"` in
 `~/.adhithiya/config/api_keys.json`, or install from the terminal:
 
 ```
-python3 -m core.builtin_brain install          # engine + model (≈ 2 GB)
+python3 -m core.builtin_brain install          # engine + model (auto-sized)
 python3 -m core.builtin_brain status           # what's installed
 python3 -m core.builtin_brain start / stop / restart
+python3 -m core.builtin_brain build            # compile engine (old macOS only)
 ```
 
 **Model profiles** (set `"builtin_profile"` in `config/api_keys.json`):
 
 | Profile | Model | Size | Best for |
 |---|---|---|---|
-| `fast` | Qwen2.5 1.5B Q4 | ≈ 1 GB | low-RAM / slower Macs |
-| `balanced` *(default)* | Qwen2.5 3B Q4 | ≈ 2 GB | the right speed/brains trade-off |
+| `fast` | Qwen2.5 1.5B Q4 | ≈ 1 GB | 4-core Intel Macs, low RAM |
+| `balanced` | Qwen2.5 3B Q4 | ≈ 2 GB | Apple Silicon / fast machines |
 | `strong` | Qwen2.5 7B Q4 | ≈ 4.7 GB | big answers; needs ~8 GB RAM free |
-| `tiny` | Qwen2.5 0.5B Q4 | ≈ 0.5 GB | very old Intel Macs |
+| `tiny` | Qwen2.5 0.5B Q4 | ≈ 0.5 GB | 2-core / very old Intel Macs |
+
+No profile chosen? ADHITHIYA auto-picks for your machine: 2-core CPUs or
+< 8 GB RAM → `tiny`, 4-core / 8–16 GB → `fast`, anything beefier → `balanced`.
+(That's why an Early-2015 MacBook Pro gets `fast`, not the 2 GB model.)
 
 On Apple Silicon replies flow at reading speed; on Intel Macs expect a bit of
 thinking time (the `tiny`/`fast` profiles stay snappy). Any other GGUF can be
 used via `"builtin_model_url": "https://…/model.gguf"`.
+
+**Which engine your macOS gets** (picked automatically; verified against the
+official llama.cpp binaries):
+
+| macOS | Engine |
+|---|---|
+| 15.5+ | newest build (b10839) — full features |
+| 14.2 – 15.4 | b6500 — still has tool calling |
+| 12.x – 14.1 | no official prebuilt can call tools → **compile once** (below) |
+
+**Built-in brain on macOS 12/13 (e.g. Monterey on older Macs):** official
+llama.cpp binaries with tool calling only exist for macOS 14.2+, so the first
+install asks you to compile the engine on your Mac instead — free and
+one-time (~5–20 min):
+
+```
+xcode-select --install                 # Xcode Command Line Tools
+python3 -m pip install cmake           # tiny pip package, no brew needed
+python3 -m core.builtin_brain build    # downloads source, compiles llama-server
+python3 -m core.builtin_brain install  # then fetch the model (~1 GB for 'fast')
+python3 -m core.builtin_brain start
+```
+
+Everything after that is identical: model download is resumable, the brain
+runs offline, and the app starts/warms it automatically at launch.
 
 Hearing & voice are the same as Ollama local mode: ADHITHIYA speaks with your
 Mac's `say` voice for free; hearing prefers local `faster-whisper` if

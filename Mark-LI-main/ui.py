@@ -1150,7 +1150,8 @@ class SetupOverlay(QWidget):
         builtin_btn.setFixedHeight(34)
         builtin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         builtin_btn.setToolTip(
-            "Downloads a real neural net onto this Mac once (~2 GB), then\n"
+            "Downloads a real neural net onto this Mac once (auto-sized\n"
+            "model: ~0.5–2 GB), then\n"
             "ADHITHIYA thinks entirely offline — no account, no bill,\n"
             "no internet needed. Apache-2.0 Qwen2.5 model + llama.cpp.")
         builtin_btn.setStyleSheet(f"""
@@ -1164,7 +1165,7 @@ class SetupOverlay(QWidget):
         """)
         builtin_btn.clicked.connect(self._submit_builtin)
         layout.addWidget(builtin_btn)
-        layout.addWidget(_lbl("first launch downloads ≈ 2 GB · after that it works "
+        layout.addWidget(_lbl("model auto-sized for your Mac (≈0.5–2 GB) · one download, then it works "
                               "100% offline, forever", 7,
                               color=C.TEXT_DIM))
 

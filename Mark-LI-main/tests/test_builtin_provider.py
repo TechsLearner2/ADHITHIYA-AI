@@ -77,9 +77,107 @@ def test_platform_asset_unknown_os_raises(monkeypatch):
         bb.platform_asset()
 
 
-def test_default_profile_is_balanced():
+def test_default_profile_is_balanced(monkeypatch):
+    # plenty of cores + RAM, no config → balanced
+    monkeypatch.setattr(bb, "_logical_cores", lambda: 16)
+    monkeypatch.setattr(bb, "_ram_gb", lambda: 64.0)
+    monkeypatch.setattr(llm, "_cfg", lambda: {})
     assert bb.profile_name() == "balanced"
     assert bb.MODEL_PROFILES["balanced"]["url"].endswith(".gguf")
+
+
+def test_profile_auto_adapts_to_weak_hardware(monkeypatch):
+    # the user's real machine: dual-core 2015 Intel MacBook (4 threads, 16 GB)
+    monkeypatch.setattr(bb, "_logical_cores", lambda: 4)
+    monkeypatch.setattr(bb, "_ram_gb", lambda: 16.0)
+    monkeypatch.setattr(llm, "_cfg", lambda: {})
+    assert bb.profile_name() == "fast"
+    monkeypatch.setattr(bb, "_logical_cores", lambda: 2)
+    assert bb.profile_name() == "tiny"
+    monkeypatch.setattr(bb, "_ram_gb", lambda: 6.0)
+    monkeypatch.setattr(bb, "_logical_cores", lambda: 8)
+    assert bb.profile_name() == "tiny"
+
+
+def test_config_profile_overrides_suggestion(monkeypatch):
+    monkeypatch.setattr(bb, "_logical_cores", lambda: 2)      # would pick tiny
+    from memory import config_manager as cm
+    monkeypatch.setattr(cm, "load_api_keys",
+                        lambda: {"builtin_profile": "strong"})
+    assert bb.profile_name() == "strong"
+
+
+# ── engine version floors (macOS compatibility) ─────────────────────────────
+
+@pytest.mark.parametrize("macver,expected", [
+    ((12, 7, 6), None),      # Monterey — no tool-capable prebuilt
+    ((13, 6, 0), None),
+    ((14, 1, 0), None),
+    ((14, 2, 0), "b6500"),   # Sonoma 14.2+ → legacy build with tools
+    ((15, 4, 0), "b6500"),
+    ((15, 5, 0), "b10839"),  # Sequoia 15.5+ → newest build
+    ((16, 0, 0), "b10839"),
+])
+def test_engine_version_floor_per_macos(monkeypatch, macver, expected):
+    monkeypatch.setattr(bb, "_cfg", lambda: {})
+    monkeypatch.setattr(bb, "_macos_version", lambda: macver)
+    assert bb.engine_version() == expected
+
+
+def test_engine_version_off_macos_uses_latest(monkeypatch):
+    monkeypatch.setattr(bb, "_cfg", lambda: {})
+    monkeypatch.setattr(bb, "_macos_version", lambda: None)
+    assert bb.engine_version() == "b10839"
+
+
+def test_engine_version_config_override_wins(monkeypatch):
+    monkeypatch.setattr(bb, "_cfg", lambda: {"builtin_engine_version": "b7777"})
+    monkeypatch.setattr(bb, "_macos_version", lambda: (12, 7, 6))
+    assert bb.engine_version() == "b7777"
+
+
+def test_engine_asset_urls_modern_and_legacy(monkeypatch):
+    monkeypatch.setattr(bb, "_cfg", lambda: {})
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(bb, "_arch", lambda: "x64")
+    monkeypatch.setattr(bb, "_macos_version", lambda: (15, 5, 0))
+    urls = bb.engine_asset_urls()
+    assert urls[0].endswith("llama-b10839-bin-macos-x64.tar.gz")
+    assert urls[1].endswith("llama-b10839-bin-macos-x64.zip")
+
+
+def test_engine_asset_urls_empty_when_unsupported(monkeypatch):
+    monkeypatch.setattr(bb, "_cfg", lambda: {})
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(bb, "_arch", lambda: "x64")
+    monkeypatch.setattr(bb, "_macos_version", lambda: (12, 7, 6))
+    assert bb.engine_asset_urls() == []
+
+
+def test_install_engine_guides_local_build_on_old_macos(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADHITHIYA_BRAIN_DIR", str(tmp_path / "brain"))
+    monkeypatch.setattr(bb, "_cfg", lambda: {})
+    monkeypatch.setattr(bb, "_macos_version", lambda: (12, 7, 6))
+    with pytest.raises(RuntimeError) as ei:
+        bb.install_engine()
+    msg = str(ei.value)
+    assert "core.builtin_brain build" in msg
+    assert "(12.7.6)" in msg
+
+
+def test_build_engine_needs_cmake(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADHITHIYA_BRAIN_DIR", str(tmp_path / "brain"))
+    monkeypatch.setattr(bb.shutil, "which", lambda _: None)
+    with pytest.raises(RuntimeError) as ei:
+        bb.build_engine()
+    assert "cmake" in str(ei.value)
+
+
+def test_build_engine_rejects_bad_tag(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADHITHIYA_BRAIN_DIR", str(tmp_path / "brain"))
+    monkeypatch.setattr(bb.shutil, "which", lambda _: "/usr/bin/cmake")
+    with pytest.raises(RuntimeError):
+        bb.build_engine(tag="not-a-tag")
 
 
 def test_model_url_custom_override(monkeypatch):

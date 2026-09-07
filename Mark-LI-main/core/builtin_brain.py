@@ -7,7 +7,7 @@ into ~/.adhithiya/brain/ (one time, then fully offline forever):
   1. the engine  — llama.cpp's ``llama-server`` official prebuilt binary
                    (≈ 11 MB; Apple Silicon / Intel / Windows / Linux),
   2. the model    — a small open-weight instruct GGUF (Qwen2.5, Apache-2.0;
-                   default "balanced" ≈ 2 GB; see MODEL_PROFILES below).
+                   auto-sized to your hardware; see MODEL_PROFILES below).
 
 Then it runs llama-server on 127.0.0.1 (never exposed to the network) and
 ADHITHIYA talks to it through the same OpenAI-compatible door it uses for
@@ -45,10 +45,51 @@ BUILTIN_CTX_SIZE   = 8192           # tokens of context the brain keeps in RAM
 BUILTIN_MAX_TOKENS = 1024           # cap on a single reply (tool loops continue)
 DEFAULT_PROFILE    = "balanced"
 
-# Engine builds roll out almost daily; pin one known-good build so every
-# install is deterministic. Override via config "builtin_engine_version"
-# (e.g. bump to the next b-build), or set ADHITHIYA_BRAIN_ENGINE_URL.
-ENGINE_VERSION = "b10839"
+# Engine builds roll out almost daily; pick per macOS version because llama.cpp
+# raises the deployment floor over time (verified on the official binaries):
+#    macOS ≥ 15.5 → b10839 (newest, full features — tested live)
+#    macOS 14.2 → b6500   (still has tool calling + reasoning handling)
+#    macOS 12.x–14.1 → none — official prebuilts with tool calling start at
+#                       macOS 14.2; run `python3 -m core.builtin_brain build`
+#                       to compile an engine locally (free, needs Xcode CLT).
+# Override anytime via config "builtin_engine_version".
+ENGINE_VERSION = "b10839"          # used off-macOS and on macOS ≥ 15.5
+_MACOS_FLOORS  = [                 # newest-first; (macOS version, engine tag)
+    ((15, 5), "b10839"),
+    ((14, 2), "b6500"),
+]
+MACOS_BUILD_MIN = (14, 2)          # below this, no prebuilt w/ tool calling
+
+
+def _macos_version() -> tuple | None:
+    """(major, minor, patch) of the running macOS, or None off-macOS."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import platform
+        raw = platform.mac_ver()[0]          # "12.7.6"
+        parts = [int(x) for x in raw.split(".")[:3] if x.isdigit()]
+        return tuple(parts) if parts else None
+    except Exception:
+        return None
+
+
+def engine_version() -> str | None:
+    """Engine build to fetch for THIS machine (config override wins).
+
+    Returns None on macOS too old for any tool-capable official prebuilt —
+    install_engine() then points the user at a local source build instead.
+    """
+    v = str(_cfg().get("builtin_engine_version") or "").strip()
+    if v:
+        return v if v.startswith("b") and v[1:].isdigit() else ENGINE_VERSION
+    mac = _macos_version()
+    if mac is None:
+        return ENGINE_VERSION
+    for floor, tag in _MACOS_FLOORS:
+        if mac >= floor:
+            return tag
+    return None      # macOS 12/13/14.0–14.1 → needs a local build
 
 # ── model profiles ──────────────────────────────────────────────────────────
 # All Qwen2.5-Instruct GGUF quants below are Apache-2.0 licensed, produce no
@@ -123,8 +164,74 @@ def _cfg() -> dict:
 
 
 def profile_name() -> str:
-    c = _cfg().get("builtin_profile") or DEFAULT_PROFILE
-    return str(c).strip().lower() if str(c).strip().lower() in MODEL_PROFILES else DEFAULT_PROFILE
+    """Configured profile, or an auto-suggested one for this machine."""
+    c = str(_cfg().get("builtin_profile") or "").strip().lower()
+    if c in MODEL_PROFILES:
+        return c
+    return suggested_profile()
+
+
+def _logical_cores() -> int | None:
+    try:
+        n = os.cpu_count()
+        return int(n) if n and n > 0 else None
+    except Exception:
+        return None
+
+
+def _ram_gb() -> float | None:
+    """Total physical RAM in GB (best-effort, stdlib only)."""
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.run(["/usr/sbin/sysctl", "-n", "hw.memsize"],
+                                 capture_output=True, text=True, timeout=5)
+            return float(out.stdout.strip()) / 1e9 if out.returncode == 0 else None
+        if sys.platform.startswith("linux"):
+            with open("/proc/meminfo", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if line.startswith("MemTotal"):
+                        return float(line.split()[1]) / 1e6
+            return None
+        if sys.platform == "win32":
+            import ctypes
+
+            class _MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+            m = _MS()
+            m.dwLength = ctypes.sizeof(_MS)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+                return m.ullTotalPhys / 1e9
+    except Exception:
+        pass
+    return None
+
+
+def suggested_profile() -> str:
+    """Auto-pick a model size for THIS machine when none is configured.
+
+    Old 2-core Intel Macs and <8 GB-RAM boxes get the smallest brains so the
+    assistant stays conversational; 4-core/8–16 GB boxes get 'fast'; anything
+    beefier (most Apple Silicon) gets 'balanced'. Override anytime with
+    "builtin_profile" in config.
+    """
+    cores = _logical_cores()
+    ram = _ram_gb()
+    if cores is not None and cores <= 2:
+        return "tiny"
+    if ram is not None and ram < 8:
+        return "tiny"
+    if cores is not None and cores <= 4:
+        return "fast"
+    return "balanced"
 
 
 def model_url() -> tuple[str, str]:
@@ -134,11 +241,6 @@ def model_url() -> tuple[str, str]:
         return custom, Path(custom.split("?")[0]).name or "model.gguf"
     p = MODEL_PROFILES[profile_name()]
     return p["url"], p["file"]
-
-
-def engine_version() -> str:
-    v = str(_cfg().get("builtin_engine_version") or "").strip()
-    return v if v.startswith("b") and v[1:].isdigit() else ENGINE_VERSION
 
 
 def server_port() -> int:
@@ -196,16 +298,21 @@ def _arch() -> str:
     raise RuntimeError(f"Built-in brain: unsupported CPU architecture {a!r}.")
 
 
-def engine_asset_url() -> str:
-    """Direct download URL of the llama.cpp engine bundle for this machine."""
+def engine_asset_urls() -> list[str]:
+    """Candidate download URLs for the engine bundle (extension changed over
+    the eras: modern builds ship .tar.gz, older macOS/Windows .zip). Tries the
+    current style first, then the legacy one."""
     custom = str(os.environ.get("ADHITHIYA_BRAIN_ENGINE_URL") or "").strip()
     if custom:
-        return custom
+        return [custom]
     ver = engine_version()
-    tag = f"llama-{ver}-bin-{platform_asset()}"
-    ext = ".zip" if sys.platform == "win32" else ".tar.gz"
-    return (f"https://github.com/ggml-org/llama.cpp/releases/download/"
-            f"{ver}/{tag}{ext}")
+    if ver is None:
+        return []
+    base = (f"https://github.com/ggml-org/llama.cpp/releases/download/"
+            f"{ver}/llama-{ver}-bin-{platform_asset()}")
+    if sys.platform == "win32":
+        return [base + ".zip"]
+    return [base + ".tar.gz", base + ".zip"]   # modern first, legacy fallback
 
 
 def _archive_members(src: Path) -> list:
@@ -381,19 +488,43 @@ def install(profile: str | None = None, progress=None) -> dict:
 
 
 def install_engine(progress=None) -> str:
+    """Fetch + unpack the official llama-server for this machine. Raises with
+    macOS-12-friendly guidance when no tool-capable prebuilt exists."""
     reg = _read_registry()
     want = engine_version()
-    if reg.get("engine_version") == want and server_binary() is not None:
-        return str(server_binary())
-    url = engine_asset_url()
-    fname = f"llama-{want}-bin-{platform_asset()}"
-    fname += ".zip" if sys.platform == "win32" else ".tar.gz"
-    arc = brain_dir() / fname
+    have = server_binary() is not None
+    if have and (want is None or reg.get("engine_version") == want):
+        return str(server_binary())          # already installed (any source)
+    if want is None:
+        mac = _macos_version() or ()
+        raise RuntimeError(
+            "This macOS (" + ".".join(str(p) for p in mac) +
+            ") is older than the oldest official llama.cpp build that can "
+            "call tools (macOS 14.2) — so ADHITHIYA can't download a brain "
+            "engine for it. Fix (free, one-time):\n"
+            "  1. install Xcode Command Line Tools:  xcode-select --install\n"
+            "  2. python3 -m pip install cmake\n"
+            "  3. python3 -m core.builtin_brain build\n"
+            "That compiles the engine on your Mac (~5–20 min, one time). "
+            "See the readme's 'Built-in brain on older macOS' note.")
+    urls = engine_asset_urls()
+    last_err: Exception | None = None
+    arc: Path | None = None
+    for url in urls:
+        fname = url.rsplit("/", 1)[-1].split("?")[0]
+        arc = brain_dir() / fname
+        if progress:
+            progress(f"Downloading the engine ({fname})…")
+        try:
+            _download(url, arc, progress=None, attempts=2)
+            break
+        except Exception as e:  # noqa: BLE001 — try the legacy archive style
+            last_err = e
+            arc = None
+    if arc is None:
+        raise RuntimeError(f"Engine download failed: {last_err}")
     if progress:
-        progress(f"Downloading the engine ({fname}, ~11–18 MB)…")
-    _download(url, arc, progress=None)   # small; no progress spam needed
-    if progress:
-        progress(f"Engine downloaded — unpacking…")
+        progress("Engine downloaded — unpacking…")
     exe = _extract(arc, _engine_dir())
     _write_registry({**reg, "engine_version": want, "engine_exe": str(exe)})
     return str(exe)
@@ -460,6 +591,109 @@ def model_file() -> Path | None:
     return p if p.exists() else None
 
 
+def build_engine(progress=None, tag: str | None = None) -> str:
+    """Compile llama-server from source — the macOS 12/13 path, where no
+    official prebuilt with tool calling exists.
+
+    Needs Xcode Command Line Tools (xcode-select --install) and cmake
+    (e.g. `python3 -m pip install cmake`). One-time cost: a few minutes on
+    modern Macs, up to ~20 on a 2015-era one. Choose the oldest code that
+    still has tool calling (b4600+) to stay kind to older toolchains.
+    """
+    want = tag or "b4600"            # first official build with tool calls
+    if not (want.startswith("b") and want[1:].isdigit()):
+        raise RuntimeError(f"Bad engine tag {want!r} — use e.g. b4600.")
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        raise RuntimeError(
+            "cmake is required to build the brain engine. Install it with:\n"
+            "    python3 -m pip install cmake\n"
+            "and make sure Xcode Command Line Tools are installed "
+            "(xcode-select --install), then run this again.")
+    brain_dir().mkdir(parents=True, exist_ok=True)
+    src = brain_dir() / f"llama-{want}-src"
+    bdir = brain_dir() / f"llama-{want}-build"
+    if not (src / "CMakeLists.txt").exists():
+        if progress:
+            progress(f"Downloading llama.cpp source ({want})…")
+        url = (f"https://github.com/ggml-org/llama.cpp/archive/refs/tags/"
+               f"{want}.tar.gz")
+        arc = brain_dir() / f"llama-{want}.src.tar.gz"
+        _download(url, arc, attempts=3)
+        if progress:
+            progress("Unpacking source…")
+        root = brain_dir() / f"llama-{want}"
+        shutil.rmtree(src, ignore_errors=True)
+        shutil.rmtree(root, ignore_errors=True)
+        _extract_tree(arc, brain_dir())
+        if not root.exists():
+            raise RuntimeError(f"Source archive didn't contain {root.name}.")
+        os.replace(root, src)
+    if progress:
+        progress("Configuring the build (Release, server only)…")
+    cfg = subprocess.run(
+        [cmake, "-S", str(src), "-B", str(bdir),
+         "-DCMAKE_BUILD_TYPE=Release",
+         "-DLLAMA_CURL=OFF", "-DLLAMA_BUILD_TESTS=OFF",
+         "-DLLAMA_BUILD_EXAMPLES=OFF", "-DLLAMA_BUILD_SERVER=ON"],
+        capture_output=True, text=True)
+    if cfg.returncode != 0:
+        raise RuntimeError("cmake configure failed:\n"
+                           + (cfg.stdout + cfg.stderr)[-1500:])
+    if progress:
+        progress("Compiling llama-server (this is the long step)…")
+    n = str(max(1, (os.cpu_count() or 2)))
+    bld = subprocess.run(
+        [cmake, "--build", str(bdir), "--config", "Release",
+         "--target", "llama-server", "-j", n],
+        capture_output=True, text=True)
+    if bld.returncode != 0:
+        raise RuntimeError(
+            "Engine build failed. On an old macOS/Xcode the newest sources "
+            "may not compile — retry with an older tag, e.g.:\n"
+            "    python3 -m core.builtin_brain build --tag b4600\n"
+            "Last error:\n" + (bld.stdout + bld.stderr)[-1500:])
+    cand = [p for p in (bdir / "bin").glob("llama-server")] if (bdir / "bin").exists() else []
+    cand += [p for p in bdir.rglob("llama-server")]
+    if not cand:
+        raise RuntimeError("Build finished but llama-server binary not found.")
+    exe = cand[0]
+    exe.chmod(exe.stat().st_mode | 0o111)
+    reg = _read_registry()
+    _write_registry({**reg, "engine_version": want, "engine_exe": str(exe),
+                     "engine_built": True})
+    if progress:
+        progress(f"Engine compiled: {exe}")
+    return str(exe)
+
+
+def _extract_tree(src: Path, dest: Path) -> None:
+    """Extract a tarball preserving symlinks (safe paths only)."""
+    import tarfile as _tf
+    with _tf.open(src) as t:
+        for member in t.getmembers():
+            target = (dest / member.name).resolve()
+            if not str(target).startswith(str(dest.resolve())):
+                raise RuntimeError(f"Unsafe tar path in {src.name}")
+            if member.isdir():
+                continue
+            if member.issym() or member.islnk():
+                link = member.linkname
+                if os.path.isabs(link):
+                    raise RuntimeError(f"Absolute symlink in {src.name}: {link}")
+                rel = os.path.normpath(
+                    os.path.join(os.path.dirname(member.name), link))
+                if rel.startswith("..") or rel.startswith("/"):
+                    raise RuntimeError(f"Unsafe symlink in {src.name}: {link}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.is_symlink() or target.exists():
+                    target.unlink(missing_ok=True)
+                target.symlink_to(link)
+                continue
+            if member.isfile():
+                t.extract(member, dest)
+
+
 # ── server lifecycle ─────────────────────────────────────────────────────────
 
 _proc: subprocess.Popen | None = None
@@ -501,6 +735,8 @@ def status() -> dict:
     return {
         "engine": bool(server_binary()),
         "engine_version": reg.get("engine_version"),
+        "engine_built": bool(reg.get("engine_built")),
+        "engine_needs_build": engine_version() is None and not reg.get("engine_built"),
         "model": mf.name if mf else None,
         "model_profile": reg.get("model_profile"),
         "server": alive,
@@ -519,6 +755,13 @@ def ensure_server(progress=None) -> int:
             return server_port()
         exe = server_binary()
         if exe is None:
+            if engine_version() is None:
+                raise RuntimeError(
+                    "The built-in brain needs its engine compiled for this "
+                    "macOS (official prebuilts require macOS 14.2+). Install "
+                    "Xcode Command Line Tools, then run:\n"
+                    "    python3 -m core.builtin_brain build\n"
+                    "then: python3 -m core.builtin_brain install")
             raise RuntimeError(
                 "The built-in brain isn't installed yet. On the setup screen "
                 "choose 'INSTALL BUILT-IN BRAIN' (one-time ≈2 GB download, "
@@ -562,7 +805,7 @@ def _start(exe: Path, model: Path) -> None:
         "--host", "127.0.0.1", "--port", str(port),
         "--alias", alias,
         "--ctx-size", str(ctx_size()),
-        "--no-ui", "--parallel", "1",
+        "--no-webui", "--parallel", "1",
         "--api-key", "builtin",         # matches llm.get_api_key() placeholder
     ]
     ngl = gpu_layers()
@@ -670,8 +913,10 @@ def _cli() -> None:
     ap = argparse.ArgumentParser(prog="python3 -m core.builtin_brain",
                                  description="ADHITHIYA's built-in offline brain")
     ap.add_argument("action", choices=["status", "install", "start",
-                                       "stop", "restart"])
+                                       "stop", "restart", "build"])
     ap.add_argument("--profile", default=None, choices=list(MODEL_PROFILES))
+    ap.add_argument("--tag", default=None,
+                    help="llama.cpp build tag to compile (default b4600)")
     args = ap.parse_args()
     if args.action == "status":
         for k, v in status().items():
@@ -681,6 +926,13 @@ def _cli() -> None:
         print(f"Profile: {args.profile or profile_name()}")
         install(args.profile, progress=lambda m: print("·", m))
         print("Done. Run `python3 -m core.builtin_brain start` to load it.")
+        return
+    if args.action == "build":
+        print("Compiling the brain engine locally (one-time)…")
+        print("→", build_engine(progress=lambda m: print("·", m), tag=args.tag))
+        print("Engine ready. Now install the model and start:")
+        print("  python3 -m core.builtin_brain install")
+        print("  python3 -m core.builtin_brain start")
         return
     if args.action == "start":
         port = ensure_server()
