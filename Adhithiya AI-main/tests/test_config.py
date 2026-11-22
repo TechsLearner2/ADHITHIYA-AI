@@ -41,6 +41,57 @@ def test_load_api_keys_primary_only(monkeypatch, tmp_path):
     assert cm.load_api_keys() == {"provider": "local", "os_system": "mac"}
 
 
+def test_save_gateway_config_preserves_existing_settings(monkeypatch, tmp_path):
+    config_file = tmp_path / "home" / "config" / "api_keys.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text(json.dumps({
+        "provider": "groq", "temperature": 0.3,
+        "assistant_name": "Ari",
+    }))
+    monkeypatch.setattr(cm, "CONFIG_FILE", config_file)
+    monkeypatch.setattr(cm, "get_base_dir", lambda: tmp_path / "repo")
+    monkeypatch.setattr(cm, "_PERMS_HARDENED", False)
+
+    cm.save_api_keys(
+        "test-gateway-key", "gateway",
+        gateway_base_url="https://gateway.example/v1",
+        gateway_model="example/chat-model",
+        os_system="windows",
+    )
+    saved = json.loads(config_file.read_text(encoding="utf-8"))
+    assert saved["provider"] == "gateway"
+    assert saved["gateway_api_key"] == "test-gateway-key"
+    assert saved["gateway_base_url"] == "https://gateway.example/v1"
+    assert saved["gateway_model"] == "example/chat-model"
+    assert saved["os_system"] == "windows"
+    assert saved["temperature"] == 0.3
+    assert saved["assistant_name"] == "Ari"
+
+
+def test_save_api_key_infers_provider_without_storing_default(monkeypatch, tmp_path):
+    config_file = tmp_path / "home" / "config" / "api_keys.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(cm, "CONFIG_FILE", config_file)
+    monkeypatch.setattr(cm, "get_base_dir", lambda: tmp_path / "repo")
+    monkeypatch.setattr(cm, "_PERMS_HARDENED", False)
+
+    cm.save_api_keys("gsk_test_only")
+    saved = json.loads(config_file.read_text(encoding="utf-8"))
+    assert saved["groq_api_key"] == "gsk_test_only"
+    assert "provider" not in saved
+
+
+def test_gateway_key_counts_as_configured(monkeypatch, tmp_path):
+    config_file = tmp_path / "home" / "config" / "api_keys.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text(json.dumps({"gateway_api_key": "gateway-key-long-enough"}))
+    monkeypatch.setattr(cm, "CONFIG_FILE", config_file)
+    monkeypatch.setattr(cm, "get_base_dir", lambda: tmp_path / "repo")
+    monkeypatch.setattr(cm, "_PERMS_HARDENED", False)
+    assert cm.is_configured()
+
+
 def test_local_unreachable_classification(monkeypatch):
     from core import llm
 

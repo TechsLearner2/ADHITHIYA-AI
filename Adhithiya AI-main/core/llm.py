@@ -1,12 +1,13 @@
 """LLM provider layer — the single door to the AI brain.
 
-Every AI call in ADHITHIYA goes through here. Two providers sit behind one
-interface; switching is a one-line config change, never a code rewrite.
+Every AI call in ADHITHIYA goes through here. Providers share one interface;
+when no provider is explicitly configured, a single saved API key identifies
+the provider. No cloud provider is silently selected when there is no key.
 
-    provider = "groq"   (default — FREE, no credit card)
+    provider = "groq"   (selected explicitly or inferred from groq_api_key)
         chat   → openai/gpt-oss-120b (free) → gpt-oss-20b / kimi-k2 fallbacks
         STT    → whisper-large-v3-turbo    (free tier)
-        TTS    → canopylabs/orpheus-v1-english (free) → Mac `say` fallback
+        TTS    → canopylabs/orpheus-v1-english (free) → OS voice fallback
         vision → qwen/qwen3.6-27b (preview; polite message if unavailable)
         image  → not available on Groq (image generation needs OpenAI)
 
@@ -14,9 +15,9 @@ interface; switching is a one-line config change, never a code rewrite.
         chat  → gpt-4o-mini · STT → whisper-1 · TTS → gpt-4o-mini-tts
         image → gpt-image-1 (falls back to dall-e-3)
 
-    provider = "local" (free forever, private, offline — runs on your Mac)
+    provider = "local" (free forever, private, offline — runs on your computer)
         chat  → Ollama (default qwen3:8b; change via "local_model")
-        TTS   → the Mac's built-in `say` voice
+        TTS   → the operating system's built-in voice
         STT   → local faster-whisper if installed, else your free Groq key
         image → not available offline (needs the paid OpenAI provider)
 
@@ -25,17 +26,26 @@ interface; switching is a one-line config change, never a code rewrite.
                 llama-server + a small open-weight GGUF (Qwen2.5, Apache-2.0),
                 downloaded ONCE (~2 GB) into ~/.adhithiya/brain/ and then
                 runs forever offline. Zero keys, zero accounts, zero cost.
-        TTS   → the Mac's built-in `say` voice
+        TTS   → the operating system's built-in voice
         STT   → local faster-whisper if installed, else your free Groq key
         image → not available offline (needs the paid OpenAI provider)
 
+    provider = "gateway" (any OpenAI-compatible API endpoint)
+        chat  → configured gateway URL, key, and model
+        URL   → gateway_base_url (defaults to OpenRouter's /api/v1 endpoint)
+        model → gateway_model (defaults to "openrouter/auto")
+
 Config (config/api_keys.json):
-    provider         — "groq" (default) or "openai"
+    provider         — optional explicit selection; otherwise inferred from one saved API key
     groq_api_key     — free key from console.groq.com        (provider=groq)
     openai_api_key   — key from platform.openai.com          (provider=openai)
+    gateway_api_key  — key for the configured compatible endpoint (provider=gateway)
+    gateway_base_url — OpenAI-compatible API base URL (e.g. https://openrouter.ai/api/v1)
+    gateway_model    — optional model ID (default "openrouter/auto")
+    gateway_chat_fallbacks — optional comma-separated fallback model IDs
     chat_model       — optional override (per-provider default otherwise)
     stt_model        — optional override
-    say_voice        — macOS voice used as the Groq speech FALLBACK (e.g. "Samantha")
+    say_voice        — macOS `say` voice used as the Groq speech fallback (e.g. "Samantha")
     groq_tts_voice   — Groq Orpheus voice (e.g. "troy", "autumn", "hannah"); default "troy"
     tts_voice        — OpenAI speaking voice (provider=openai), default "alloy"
     image_model      — OpenAI image model (default "gpt-image-1")
@@ -64,6 +74,7 @@ from __future__ import annotations
 
 import base64
 import json
+import platform
 import re
 
 from memory.config_manager import load_api_keys
@@ -94,7 +105,11 @@ DEFAULT_IMAGE_MODEL  = "gpt-image-1"
 IMAGE_FALLBACK       = "dall-e-3"
 TTS_FALLBACK         = "tts-1"
 
-DEFAULT_PROVIDER     = "groq"
+UNCONFIGURED_PROVIDER = "unconfigured"
+AMBIGUOUS_PROVIDER = "ambiguous"
+UNKNOWN_PROVIDER = "unknown"
+DEFAULT_GATEWAY_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_GATEWAY_CHAT_MODEL = "openrouter/auto"
 GROQ_BASE_URL        = "https://api.groq.com/openai/v1"
 # Groq retired the free Llama 3.x models (moved to "Enterprise"); the current
 # free chat models are the GPT-OSS family and Kimi K2. We keep an ordered
@@ -227,20 +242,21 @@ def _cfg():
 
 
 def get_api_key() -> str:
-    """The active provider's key. Reads groq_api_key or openai_api_key
-    (provider-aware), so switching providers never needs new plumbing.
-    The local and builtin providers need no key — a non-empty placeholder
-    keeps every downstream 'is a key configured?' guard passing."""
+    """Return the active provider's key (or a local-mode placeholder)."""
     data = _cfg()
     p = provider()
     if p == "builtin":
         return "builtin"
     if p == "local":
         return "ollama"
-    if provider() == "groq":
-        key = data.get("groq_api_key") or data.get("openai_api_key")
+    if p == "gateway":
+        key = data.get("gateway_api_key") or data.get("api_key")
+    elif p == "groq":
+        key = data.get("groq_api_key") or data.get("api_key")
+    elif p == "openai":
+        key = data.get("openai_api_key") or data.get("api_key")
     else:
-        key = data.get("openai_api_key") or data.get("groq_api_key")
+        return ""
     return str(key or "").strip()
 
 
@@ -248,24 +264,102 @@ def model(name: str) -> str:
     return str(_cfg().get(name, "") or "").strip()
 
 
+def validate_gateway_base_url(value: str) -> str:
+    """Normalize and validate an OpenAI-compatible HTTP(S) base URL."""
+    from urllib.parse import urlsplit
+
+    raw = str(value or "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(raw)
+        valid = (parsed.scheme.lower() in {"http", "https"}
+                 and bool(parsed.hostname) and not parsed.username
+                 and not parsed.password and not parsed.fragment
+                 and (parsed.port is None or 1 <= parsed.port <= 65535)
+                 and not any(ch.isspace() for ch in raw))
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError(
+            "Invalid gateway_base_url. Enter an OpenAI-compatible HTTP(S) "
+            "base URL, for example https://openrouter.ai/api/v1."
+        )
+    return raw
+
+
+def gateway_base_url() -> str:
+    """Return the configured OpenAI-compatible gateway base URL.
+
+    ``gateway_url`` is also accepted as an older/shorter config spelling.
+    A public OpenRouter endpoint is the default; self-hosted gateways can use
+    HTTP as long as the URL has a hostname (for example localhost).
+    """
+    data = _cfg()
+    raw = (data.get("gateway_base_url") or data.get("gateway_url")
+           or DEFAULT_GATEWAY_BASE_URL)
+    return validate_gateway_base_url(str(raw))
+
+
+def infer_provider_from_api_key(api_key: str, gateway_url: str = "") -> str | None:
+    """Infer common provider keys; return None when the key is ambiguous.
+
+    Named provider fields in api_keys.json are more reliable and are used by
+    ``provider()`` first. This helper is for setup's single-key auto mode.
+    """
+    key = str(api_key or "").strip().lower()
+    if not key:
+        return None
+    if key.startswith(("gsk_", "gsk-")):
+        return "groq"
+    if key.startswith(("sk-or-", "or-v1-")):
+        return "gateway"
+    url = str(gateway_url or "").strip().rstrip("/")
+    if url and url != DEFAULT_GATEWAY_BASE_URL.rstrip("/"):
+        return "gateway"
+    if key.startswith("sk-"):
+        return "openai"
+    return None
+
+
 def provider() -> str:
-    """Which backend is active: 'groq' (free default), 'openai', 'local'
-    (Ollama), or 'builtin' (the built-in offline brain)."""
+    """Active backend: explicit provider, or the provider represented by one key.
+
+    Returns ``unconfigured`` when no key/provider is saved and ``ambiguous``
+    when several provider keys exist without an explicit provider selection.
+    """
     data = _cfg()
     p = str(data.get("provider") or "").strip().lower()
-    if p in {"groq", "openai", "local", "builtin"}:
+    if p in {"groq", "openai", "gateway", "local", "builtin"}:
         return p
-    # Auto-detect: an OpenAI key (and no Groq key) → openai; otherwise groq.
-    if data.get("openai_api_key") and not data.get("groq_api_key"):
-        return "openai"
-    return DEFAULT_PROVIDER
+
+    key_fields = (
+        ("groq", "groq_api_key"),
+        ("openai", "openai_api_key"),
+        ("gateway", "gateway_api_key"),
+    )
+    configured = [name for name, field in key_fields
+                  if str(data.get(field) or "").strip()]
+    if len(configured) == 1:
+        return configured[0]
+    if len(configured) > 1:
+        return AMBIGUOUS_PROVIDER
+
+    generic_key = str(data.get("api_key") or "").strip()
+    if generic_key:
+        return (infer_provider_from_api_key(
+            generic_key, data.get("gateway_base_url") or data.get("gateway_url"))
+                or UNKNOWN_PROVIDER)
+    return UNCONFIGURED_PROVIDER
 
 
 def chat_model() -> str:
+    p = provider()
+    if p in {UNCONFIGURED_PROVIDER, AMBIGUOUS_PROVIDER, UNKNOWN_PROVIDER}:
+        return ""
+    if p == "gateway":
+        return model("gateway_model") or DEFAULT_GATEWAY_CHAT_MODEL
     override = model("chat_model")
     if override:
         return override
-    p = provider()
     if p == "groq":
         return GROQ_CHAT_MODEL
     if p == "local":
@@ -287,7 +381,10 @@ def stt_model() -> str:
     override = model("stt_model")
     if override:
         return override
-    return GROQ_STT_MODEL if provider() == "groq" else DEFAULT_STT_MODEL
+    p = provider()
+    if p in {UNCONFIGURED_PROVIDER, AMBIGUOUS_PROVIDER, UNKNOWN_PROVIDER}:
+        return ""
+    return GROQ_STT_MODEL if p == "groq" else DEFAULT_STT_MODEL
 
 
 def image_model() -> str:
@@ -320,6 +417,8 @@ def _model_unavailable(err: Exception) -> bool:
 def _chat_models() -> list[str]:
     """Ordered chat-model candidates for the active provider (first valid wins)."""
     p = provider()
+    if p in {UNCONFIGURED_PROVIDER, AMBIGUOUS_PROVIDER, UNKNOWN_PROVIDER}:
+        return []
     if p == "groq":
         out = [chat_model()]
         for m in GROQ_CHAT_FALLBACKS:
@@ -340,6 +439,13 @@ def _chat_models() -> list[str]:
         for m in LOCAL_CHAT_FALLBACKS:
             if m not in out:
                 out.append(m)
+        return out
+    if p == "gateway":
+        out = [chat_model()]
+        for candidate in model("gateway_chat_fallbacks").split(","):
+            candidate = candidate.strip()
+            if candidate and candidate not in out:
+                out.append(candidate)
         return out
     if p == "builtin":
         return [chat_model()]   # one brain, one model — no fallback list
@@ -415,13 +521,39 @@ def _local_unreachable(err: Exception) -> bool:
 
 
 def _client():
+    p = provider()
+    if p == UNCONFIGURED_PROVIDER:
+        raise RuntimeError(
+            "No AI provider key is configured. Enter one in setup or add a "
+            "provider-specific key to `~/.adhithiya/config/api_keys.json`."
+        )
+    if p == AMBIGUOUS_PROVIDER:
+        raise RuntimeError(
+            "More than one provider key is configured. Set `provider` in "
+            "`~/.adhithiya/config/api_keys.json` or keep only the key to use."
+        )
+    if p == UNKNOWN_PROVIDER:
+        raise RuntimeError(
+            "The saved `api_key` format does not identify a provider. Set "
+            "`provider` in `~/.adhithiya/config/api_keys.json` or choose one "
+            "in setup."
+        )
+    api_key = get_api_key()
+    if p in {"groq", "openai", "gateway"} and not api_key:
+        field = {"groq": "groq_api_key", "openai": "openai_api_key",
+                 "gateway": "gateway_api_key"}[p]
+        raise RuntimeError(
+            f"Provider {p!r} is selected, but {field} is missing from "
+            "`~/.adhithiya/config/api_keys.json`."
+        )
     cls = _OpenAI
     if cls is None:
         from openai import OpenAI as cls
-    kwargs = {"api_key": get_api_key(), "max_retries": 2, "timeout": 60.0}
-    p = provider()
+    kwargs = {"api_key": api_key, "max_retries": 2, "timeout": 60.0}
     if p == "groq":
         kwargs["base_url"] = GROQ_BASE_URL
+    elif p == "gateway":
+        kwargs["base_url"] = gateway_base_url()
     elif p == "builtin":
         # llama-server's OpenAI-compatible door; ensure_server raises the
         # helpful "install the brain" error when it isn't up yet.
@@ -712,6 +844,20 @@ def chat(messages: list[dict], tools: list[dict] | None = None,
             "(if you interrupted a pull, just re-run it — it resumes). "
             "Last error: " + str(last_err)[:200]
         )
+    if (provider() == "gateway"
+            and chat_model() == DEFAULT_GATEWAY_CHAT_MODEL
+            and last_err is not None):
+        code = getattr(last_err, "status_code", None) or getattr(last_err, "code", None)
+        detail = str(last_err).lower()
+        if code == 404 or any(marker in detail for marker in (
+                "model_not_found", "no endpoints found", "unknown model",
+                "model does not exist", "no models available")):
+            raise RuntimeError(
+                "The gateway did not accept the default model "
+                f"{DEFAULT_GATEWAY_CHAT_MODEL!r}. Add a `gateway_model` entry "
+                "to `~/.adhithiya/config/api_keys.json` with a model ID "
+                "supported by your gateway."
+            ) from last_err
     raise (last_err or RuntimeError("no chat model available"))
 
 
@@ -850,9 +996,9 @@ def _transcribe_local(wav_bytes: bytes) -> str:
 
     raise RuntimeError(
         "No speech-to-text available. Add your free Groq key to "
-        "config/api_keys.json as groq_api_key (easiest), or install "
-        "faster-whisper — note: on macOS 12 that needs Python 3.12 "
-        "(onnxruntime has no Python 3.13 build for macOS < 13)."
+        "config/api_keys.json as groq_api_key, or install faster-whisper "
+        "in the app's Python environment. On macOS 12, use Python 3.12 "
+        "because newer onnxruntime builds may not support that OS."
     )
 
 
@@ -893,9 +1039,9 @@ def tts_wav(text: str) -> bytes:
                 if "terms" in str(e).lower():
                     _ORPHEUS_DISABLED = True
                     print("[TTS] Orpheus needs one-time terms acceptance at "
-                          "console.groq.com — using the Mac voice for now.")
+                          "console.groq.com — using the system voice for now.")
                 else:
-                    print(f"[TTS] Orpheus failed ({e}); falling back to macOS 'say'.")
+                    print(f"[TTS] Orpheus failed ({e}); falling back to the system voice.")
         return _say_tts(text)
     client = _client()
     try:
@@ -1018,7 +1164,61 @@ def _groq_vision(prompt: str, image_bytes: bytes, mime: str = "image/png") -> st
 
 
 def _say_tts(text: str) -> bytes:
-    """macOS built-in 'say' voice → WAV bytes (free, offline). Raises on failure."""
+    """Use the native system speech engine and return its output as WAV bytes."""
+    if platform.system() == "Windows":
+        return _windows_sapi_tts(text)
+    if platform.system() == "Darwin":
+        return _mac_say_tts(text)
+    raise RuntimeError("Native offline speech is supported on Windows and macOS.")
+
+
+def _windows_sapi_tts(text: str) -> bytes:
+    """Use Windows' built-in SAPI voice via System.Speech (no extra package)."""
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    script = (
+        "param([string]$OutputPath, [string]$TextPath)\n"
+        "$ErrorActionPreference = 'Stop'\n"
+        "Add-Type -AssemblyName System.Speech\n"
+        "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer\n"
+        "try {\n"
+        "  $text = [System.IO.File]::ReadAllText($TextPath, [System.Text.Encoding]::UTF8)\n"
+        "  $synth.SetOutputToWaveFile($OutputPath)\n"
+        "  $synth.Speak($text)\n"
+        "} finally { $synth.Dispose() }\n"
+    )
+    with tempfile.TemporaryDirectory(prefix="adhithiya-tts-") as temp_dir:
+        root = Path(temp_dir)
+        script_path = root / "speak.ps1"
+        text_path = root / "text.txt"
+        wav_path = root / "speech.wav"
+        script_path.write_text(script, encoding="utf-8")
+        text_path.write_text(text, encoding="utf-8")
+        try:
+            subprocess.run(
+                ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+                 "-ExecutionPolicy", "Bypass", "-File", str(script_path),
+                 str(wav_path), str(text_path)],
+                check=True, capture_output=True, timeout=90,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("Windows PowerShell was not found for system speech.") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Windows system speech timed out.") from exc
+        except subprocess.CalledProcessError as exc:
+            detail = exc.stderr or exc.stdout or b"SAPI failed"
+            if isinstance(detail, bytes):
+                detail = detail.decode("utf-8", "replace")
+            raise RuntimeError(f"Windows system speech failed: {detail.strip()[-300:]}") from exc
+        if not wav_path.is_file() or wav_path.stat().st_size <= 44:
+            raise RuntimeError("Windows system speech did not produce a WAV file.")
+        return wav_path.read_bytes()
+
+
+def _mac_say_tts(text: str) -> bytes:
+    """macOS built-in `say` voice → WAV bytes (free, offline)."""
     import os
     import subprocess
     import tempfile

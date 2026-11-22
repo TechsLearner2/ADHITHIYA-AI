@@ -1,7 +1,9 @@
 # ADHITHIYA — Architecture
 
-A voice-first personal AI assistant for macOS (works on Windows/Linux with
-reduced features). Voice in → AI brain with tools → voice/UI out.
+A voice-first personal AI assistant for Windows (also runs on macOS/Linux,
+with a few operating-system-specific skills). Voice in → AI brain with tools →
+voice/UI out. Windows source launch uses `run_adhithiya.bat`; the single-file
+Windows build is created on Windows with `build_windows.bat`.
 
 ```
         ┌────────────────────────────────────────────────────────────┐
@@ -14,7 +16,8 @@ reduced features). Voice in → AI brain with tools → voice/UI out.
                         │ chat(messages, tools)   [one door]
         ┌───────────────▼────────────────────────────────────────────┐
         │              core/llm.py  — the provider layer             │
-        │   provider(): groq | openai | local (Ollama) | builtin     │
+        │   provider(): groq | openai | gateway | local | builtin  │
+        │   gateway → configured OpenAI-compatible URL/key/model     │
         │   builtin → llama-server on 127.0.0.1:18771 (auto-managed) │
         │   builtin hybrid → heavy turns to Groq cloud (auto-power)  │
         └───────┬───────────────┬───────────────┬────────────────────┘
@@ -40,10 +43,15 @@ never a code change. Each provider implements the same surface:
 
 | | chat | speech-to-text | speech-out | vision | image gen |
 |---|---|---|---|---|---|
-| `groq` (free, default) | gpt-oss-120b + fallbacks | whisper-large-v3 | Orpheus → `say` | Qwen | — |
+| `groq` (free option) | gpt-oss-120b + fallbacks | whisper-large-v3 | Orpheus → OS voice | Qwen | — |
 | `openai` (paid) | gpt-4o-mini | whisper-1 | OpenAI TTS | yes | yes |
-| `local` (Ollama) | qwen3:8b + auto-detect | faster-whisper → Groq | `say` | — | — |
-| `builtin` (offline) | Qwen2.5 GGUF via llama.cpp | faster-whisper → Groq | `say` | — | — |
+| `gateway` | configured `gateway_model` (OpenRouter `openrouter/auto` by default) | gateway-dependent | gateway-dependent | gateway-dependent | gateway-dependent |
+| `local` (Ollama) | qwen3:8b + auto-detect | faster-whisper → Groq | OS voice | — | — |
+| `builtin` (offline) | Qwen2.5 GGUF via llama.cpp | faster-whisper → Groq | OS voice | — | — |
+
+If `provider` is omitted, one saved cloud key identifies its provider; there is
+no implicit cloud default. Multiple provider keys require an explicit choice.
+Chat-model selection follows the detected provider, so `chat_model` is optional.
 
 Key properties: ordered model fallbacks (never bricked by a retired model),
 retry-without-tools when a model can't function-call, `<think>` stripping,
@@ -55,8 +63,8 @@ brain pins the CPU, and human-readable errors at every failure stage.
 Installer + supervisor for llama.cpp's `llama-server`, stored in
 `~/.adhithiya/brain/` (engine exe, GGUF model, `registry.json`, `server.log`).
 
-- **bootstrap()** — the "just works" chain: Xcode CLT → cmake → compile
-  (macOS <14.2) or download engine (version chosen per macOS floor) → model
+- **bootstrap()** — the "just works" chain: download the platform-specific
+  engine (Windows/Linux and newer macOS) or compile it on older macOS → model
   (profile auto-sized from CPU/RAM) → start → warm. Idempotent.
 - Downloads are resumable, archives are extracted with symlink support and
   path-traversal guards; the server binds 127.0.0.1 only and exits with the
@@ -102,5 +110,7 @@ Installer + supervisor for llama.cpp's `llama-server`, stored in
 - `ui.py` (~4,100 lines) and `main.py` (~2,200) are the maintainability
   hotspots; split into modules as features change.
 - GitHub Actions CI runs syntax + tests on every push (`.github/workflows/ci.yml`).
-- On macOS 12, offline hearing requires Python 3.12 (onnxruntime wheels) —
-  the launcher auto-prefers 3.12.
+- The Windows `.exe` is built on Windows with PyInstaller and bundles its
+  Python runtime. The built-in brain stays in the user's data directory;
+  faster-whisper keeps its model in the Hugging Face cache. On macOS 12, offline
+  hearing requires Python 3.12, which the launcher auto-prefers.

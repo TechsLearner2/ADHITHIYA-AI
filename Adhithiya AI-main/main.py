@@ -2,6 +2,26 @@ import platform as _platform
 import subprocess as _subprocess
 import sys
 
+# A windowed PyInstaller executable has no console; Python then sets these to
+# None, while the assistant's diagnostics still use print(). Keep them useful
+# in a per-user log instead of allowing a missing stream to crash a feature.
+if (_platform.system() == "Windows" and getattr(sys, "frozen", False)
+        and (sys.stdout is None or sys.stderr is None)):
+    try:
+        from pathlib import Path as _Path
+        _log_dir = _Path.home() / ".adhithiya"
+        _log_dir.mkdir(parents=True, exist_ok=True)
+        _log_file = _log_dir / "app.log"
+        if _log_file.exists() and _log_file.stat().st_size > 5 * 1024 * 1024:
+            _log_file.write_text("", encoding="utf-8")
+        _log_stream = open(_log_file, "a", encoding="utf-8", buffering=1)
+        if sys.stdout is None:
+            sys.stdout = _log_stream
+        if sys.stderr is None:
+            sys.stderr = _log_stream
+    except Exception:
+        pass
+
 # ── Make stdout/stderr UTF-8 tolerant ────────────────────────────────────────
 # On non-UTF-8 Windows consoles (cp1254/cp1252/cp936...) any print() containing
 # an emoji raises UnicodeEncodeError.  Several of those prints sit inside except
@@ -2164,30 +2184,33 @@ class AdhithiyaAssistant:
                 self.ui.set_state("LISTENING")
 
 def _ensure_offline_hearing(ui) -> None:
-    """Auto-install faster-whisper (offline speech-to-text) when running a
-    no-key provider and the package is missing — best-effort, never blocks.
+    """Best-effort install faster-whisper for no-key source installs.
 
-    On macOS 12 it only works under Python 3.12 (onnxruntime wheels), which
-    the launcher prefers; if the running Python can't host it, we say so and
-    a free Groq key remains the hearing fallback in llm.py.
+    The Windows executable bundles the Whisper runtime. Windows source installs
+    and supported macOS Python environments install it on demand; a Groq key
+    remains the speech-to-text fallback if the optional package cannot install.
     """
     try:
         import faster_whisper  # noqa: F401
-        return                    # already installed
+        return                    # already installed / bundled
     except Exception:
         pass
     if getattr(sys, "frozen", False):
-        ui.write_log("SYS: 🎧 Offline hearing needs faster-whisper — install "
-                     "with: python3.12 -m pip install faster-whisper")
+        ui.write_log(
+            "SYS: 🎧 Offline hearing is not available in this packaged build. "
+            "Add a free Groq API key for speech-to-text, or use a source install "
+            "with faster-whisper.")
         return
-    if sys.platform != "darwin":
+    if sys.platform not in ("darwin", "win32"):
         return
+
     py = sys.version_info[:2]
-    if py not in ((3, 11), (3, 12)):
-        ui.write_log(f"SYS: 🎧 Fully-offline hearing needs Python 3.12 "
-                     f"(this app runs {py[0]}.{py[1]}). Install Python 3.12 "
-                     f"from python.org and relaunch — the launcher will use "
-                     f"it automatically.")
+    supported = ((3, 11), (3, 12), (3, 13)) if sys.platform == "win32" else ((3, 11), (3, 12))
+    if py not in supported:
+        versions = "3.11–3.13" if sys.platform == "win32" else "3.11 or 3.12"
+        ui.write_log(f"SYS: 🎧 Fully-offline hearing needs Python {versions} "
+                     f"(this app runs {py[0]}.{py[1]}). Use a supported Python "
+                     "or add a free Groq key for speech-to-text.")
         return
 
     def _install():

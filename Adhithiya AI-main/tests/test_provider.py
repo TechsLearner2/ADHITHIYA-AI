@@ -1,4 +1,4 @@
-"""Tests for the provider layer (core.llm) — Groq/OpenAI routing. No network."""
+"""Provider routing tests (Groq/OpenAI/gateway/local). No network."""
 
 import sys
 from pathlib import Path
@@ -10,11 +10,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core import llm
 
 
-def test_provider_defaults_to_groq(monkeypatch):
+def test_provider_has_no_implicit_cloud_default(monkeypatch):
     monkeypatch.setattr(llm, "_cfg", lambda: {})
-    assert llm.provider() == "groq"
-    assert llm.chat_model() == "openai/gpt-oss-120b"
-    assert llm.stt_model() == "whisper-large-v3-turbo"
+    assert llm.provider() == "unconfigured"
+    assert llm.chat_model() == ""
+    assert llm.stt_model() == ""
+    assert llm._chat_models() == []
+    with pytest.raises(RuntimeError, match="No AI provider key is configured"):
+        llm._client()
 
 
 def test_provider_explicit_openai(monkeypatch):
@@ -24,9 +27,43 @@ def test_provider_explicit_openai(monkeypatch):
     assert llm.stt_model() == "whisper-1"
 
 
-def test_provider_autodetect_openai_key(monkeypatch):
-    monkeypatch.setattr(llm, "_cfg", lambda: {"openai_api_key": "sk-test"})
-    assert llm.provider() == "openai"
+def test_provider_autodetects_unique_provider_key(monkeypatch):
+    for config, expected in (
+        ({"groq_api_key": "gsk-test"}, "groq"),
+        ({"openai_api_key": "sk-test"}, "openai"),
+        ({"gateway_api_key": "gateway-test"}, "gateway"),
+    ):
+        monkeypatch.setattr(llm, "_cfg", lambda cfg=config: cfg)
+        assert llm.provider() == expected
+
+
+def test_provider_flags_multiple_keys_as_ambiguous(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "groq_api_key": "gsk-test", "gateway_api_key": "gateway-test",
+    })
+    assert llm.provider() == "ambiguous"
+    with pytest.raises(RuntimeError, match="More than one provider key"):
+        llm._client()
+
+
+def test_provider_and_key_are_inferred_from_generic_api_key(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"api_key": "sk-or-v1-test"})
+    assert llm.provider() == "gateway"
+    assert llm.get_api_key() == "sk-or-v1-test"
+    assert llm.chat_model() == "openrouter/auto"
+    monkeypatch.setattr(llm, "_cfg", lambda: {"api_key": "opaque-token"})
+    assert llm.provider() == "unknown"
+    with pytest.raises(RuntimeError, match="does not identify a provider"):
+        llm._client()
+
+
+def test_auto_provider_infers_key_prefix_or_gateway_url():
+    assert llm.infer_provider_from_api_key("gsk_test") == "groq"
+    assert llm.infer_provider_from_api_key("sk-or-v1-test") == "gateway"
+    assert llm.infer_provider_from_api_key("sk-test") == "openai"
+    assert llm.infer_provider_from_api_key(
+        "custom-token", "https://my-gateway.example/v1") == "gateway"
+    assert llm.infer_provider_from_api_key("custom-token") is None
 
 
 def test_api_key_prefers_active_provider(monkeypatch):
@@ -38,6 +75,71 @@ def test_api_key_prefers_active_provider(monkeypatch):
         "provider": "openai", "groq_api_key": "gsk-a", "openai_api_key": "sk-b",
     })
     assert llm.get_api_key() == "sk-b"
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "provider": "gateway", "gateway_api_key": "gateway-test",
+        "openai_api_key": "sk-b", "groq_api_key": "gsk-a",
+    })
+    assert llm.get_api_key() == "gateway-test"
+
+
+def test_gateway_provider_defaults_and_overrides(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"provider": "gateway"})
+    assert llm.provider() == "gateway"
+    assert llm.chat_model() == "openrouter/auto"
+    assert llm.gateway_base_url() == "https://openrouter.ai/api/v1"
+    assert llm._chat_models() == ["openrouter/auto"]
+
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "provider": "gateway", "gateway_model": "vendor/model-x",
+        "gateway_base_url": "https://gateway.example/v1/",
+    })
+    assert llm.chat_model() == "vendor/model-x"
+    assert llm.gateway_base_url() == "https://gateway.example/v1"
+
+
+def test_gateway_key_autodetects_or_requires_choice_when_multiple(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {"gateway_api_key": "gateway-test"})
+    assert llm.provider() == "gateway"
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "gateway_api_key": "gateway-test", "groq_api_key": "gsk-a",
+    })
+    assert llm.provider() == "ambiguous"
+
+
+def test_gateway_url_alias_and_validation(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "provider": "gateway", "gateway_url": "http://localhost:8080/v1/",
+    })
+    assert llm.gateway_base_url() == "http://localhost:8080/v1"
+    for invalid in ("", "ftp://gateway.example/v1", "https://", "https://user:pass@gateway.example/v1"):
+        with pytest.raises(ValueError, match="Invalid gateway_base_url"):
+            llm.validate_gateway_base_url(invalid)
+
+
+def test_gateway_client_uses_its_key_and_configured_url(monkeypatch):
+    config = {
+        "provider": "gateway", "gateway_api_key": "gateway-test",
+        "gateway_base_url": "https://gateway.example/openai/v1/",
+    }
+    captured = {}
+
+    class _OpenAIStub:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(llm, "_cfg", lambda: config)
+    monkeypatch.setattr(llm, "_OpenAI", _OpenAIStub)
+    llm._client()
+    assert captured["api_key"] == "gateway-test"
+    assert captured["base_url"] == "https://gateway.example/openai/v1"
+
+
+def test_gateway_client_requires_its_own_api_key(monkeypatch):
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "provider": "gateway", "openai_api_key": "must-not-be-used",
+    })
+    with pytest.raises(RuntimeError, match="gateway_api_key is missing"):
+        llm._client()
 
 
 def test_chat_model_override_wins(monkeypatch):
@@ -249,4 +351,58 @@ def test_chat_falls_back_when_model_retired(monkeypatch):
     out = llm.chat([{"role": "user", "content": "hi"}])
     assert out["text"] == "hi there"
     assert tried == ["openai/gpt-oss-120b", "qwen/qwen3.6-27b"]
+
+
+def test_gateway_chat_sends_configured_model(monkeypatch):
+    calls = []
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "provider": "gateway", "gateway_api_key": "gateway-test",
+        "gateway_model": "provider/model-id",
+        "gateway_chat_fallbacks": "fallback/model-a, fallback/model-b",
+    })
+    assert llm._chat_models() == [
+        "provider/model-id", "fallback/model-a", "fallback/model-b",
+    ]
+    monkeypatch.setattr(llm, "_client", lambda: _Client(
+        lambda kwargs: (calls.append(kwargs) or _Resp(_Msg(content="gateway reply")))))
+
+    result = llm.chat([{"role": "user", "content": "hello"}])
+    assert result["text"] == "gateway reply"
+    assert calls[0]["model"] == "provider/model-id"
+
+
+def test_gateway_chat_advances_to_configured_fallback(monkeypatch):
+    tried = []
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "provider": "gateway", "gateway_api_key": "gateway-test",
+        "gateway_model": "retired/model",
+        "gateway_chat_fallbacks": "working/model",
+    })
+
+    def complete(kwargs):
+        tried.append(kwargs["model"])
+        if kwargs["model"] == "retired/model":
+            raise _NotFound("model_not_found")
+        return _Resp(_Msg(content="fallback reply"))
+
+    monkeypatch.setattr(llm, "_client", lambda: _Client(complete))
+    result = llm.chat([{"role": "user", "content": "hello"}])
+    assert result["text"] == "fallback reply"
+    assert tried == ["retired/model", "working/model"]
+
+
+def test_gateway_auto_model_failure_has_configuration_hint(monkeypatch):
+    class _MissingModel(Exception):
+        status_code = 404
+
+    monkeypatch.setattr(llm, "_cfg", lambda: {
+        "provider": "gateway", "gateway_api_key": "gateway-test",
+    })
+
+    def fail(_kwargs):
+        raise _MissingModel("model_not_found")
+
+    monkeypatch.setattr(llm, "_client", lambda: _Client(fail))
+    with pytest.raises(RuntimeError, match="gateway_model"):
+        llm.chat([{"role": "user", "content": "hello"}])
 

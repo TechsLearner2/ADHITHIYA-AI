@@ -21,9 +21,9 @@ def test_builtin_provider_routing(monkeypatch):
     assert llm.get_api_key() == "builtin"       # placeholder, not a secret
 
 
-def test_builtin_default_still_groq_without_config(monkeypatch):
+def test_no_provider_is_selected_without_a_key(monkeypatch):
     monkeypatch.setattr(llm, "_cfg", lambda: {})
-    assert llm.provider() == "groq"             # nothing in config → groq
+    assert llm.provider() == "unconfigured"
 
 
 def test_builtin_tts_uses_mac_voice(monkeypatch):

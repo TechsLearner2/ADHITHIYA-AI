@@ -1,0 +1,43 @@
+name: Windows executable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Adhithiya AI-main/**"
+      - ".github/workflows/windows-package.yml"
+  pull_request:
+    paths:
+      - "Adhithiya AI-main/**"
+      - ".github/workflows/windows-package.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build ADHITHIYA.exe
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: "Adhithiya AI-main"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install app and build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller faster-whisper
+      - name: Build the single-file Windows app
+        run: python -m PyInstaller ADHITHIYA-windows.spec --noconfirm --clean
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ADHITHIYA-Windows
+          path: "Adhithiya AI-main/dist/ADHITHIYA.exe"
+          if-no-files-found: error
+          retention-days: 14
