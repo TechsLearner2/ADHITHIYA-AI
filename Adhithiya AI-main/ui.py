@@ -55,13 +55,12 @@ def _read_full_config() -> dict:
 
 
 def _active_provider() -> str:
-    """Which AI provider is active: 'groq' (free default), 'openai', 'local'
-    (Ollama) or 'builtin' (the built-in offline brain)."""
+    """Return the configured or API-key-inferred provider, if available."""
     try:
         from core.llm import provider
         return provider()
     except Exception:
-        return "groq"
+        return "unconfigured"
 
 
 _DEFAULT_W, _DEFAULT_H = 980, 700
@@ -1037,7 +1036,7 @@ class _CameraPreview(QWidget):
 
 
 class SetupOverlay(QWidget):
-    done = pyqtSignal(str, str)
+    done = pyqtSignal(str, str, str, str, str, bool)  # provider, key, URL, model, OS, auto
     done_local = pyqtSignal(str)    # Ollama local mode — no API key
     done_builtin = pyqtSignal(str)  # built-in offline brain — no API key
 
@@ -1079,20 +1078,39 @@ class SetupOverlay(QWidget):
         layout.addSpacing(4)
 
         _prov = _active_provider()
-        if _prov in ("local", "builtin"):
-            _key_label = "NO-KEY MODE — no key needed (use a button below)"
-            _placeholder = "—"
-        elif _prov == "groq":
-            _key_label = "GROQ API KEY"
-            _placeholder = "gsk-…"
-        else:
-            _key_label = "OPENAI API KEY"
-            _placeholder = "sk-…"
-        layout.addWidget(_lbl(_key_label, 8, color=C.TEXT_DIM,
+        if _prov not in {"groq", "openai", "gateway"}:
+            _prov = "auto"
+        config = _read_full_config()
+        from core.llm import DEFAULT_GATEWAY_BASE_URL, DEFAULT_GATEWAY_CHAT_MODEL
+
+        layout.addWidget(_lbl("AI PROVIDER", 8, color=C.TEXT_DIM,
                                align=Qt.AlignmentFlag.AlignLeft))
+        self._provider_input = QComboBox()
+        self._provider_input.addItem("AUTO — detect from API key", "auto")
+        self._provider_input.addItem("GROQ — free cloud", "groq")
+        self._provider_input.addItem("OPENAI — paid cloud", "openai")
+        self._provider_input.addItem("OPENAI-COMPATIBLE GATEWAY", "gateway")
+        self._provider_input.setCurrentIndex(
+            max(0, self._provider_input.findData(_prov)))
+        self._provider_input.setFixedHeight(32)
+        self._provider_input.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        self._provider_input.setStyleSheet(f"""
+            QComboBox {{
+                background: #000d12; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px;
+            }}
+            QComboBox:focus {{ border: 1px solid {C.PRI}; }}
+            QComboBox QAbstractItemView {{
+                background: #000d12; color: {C.TEXT}; selection-background-color: {C.PRI_GHO};
+            }}
+        """)
+        layout.addWidget(self._provider_input)
+
+        self._key_label = _lbl("API KEY", 8, color=C.TEXT_DIM,
+                               align=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self._key_label)
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._key_input.setPlaceholderText(_placeholder)
         self._key_input.setFont(QFont("Courier New", 10))
         self._key_input.setFixedHeight(32)
         self._key_input.setStyleSheet(f"""
@@ -1103,6 +1121,49 @@ class SetupOverlay(QWidget):
             QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
         """)
         layout.addWidget(self._key_input)
+
+        self._gateway_url_label = _lbl(
+            "GATEWAY BASE URL (only for gateway mode)", 8, color=C.TEXT_DIM,
+            align=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self._gateway_url_label)
+        self._gateway_url_input = QLineEdit()
+        self._gateway_url_input.setFont(QFont("Courier New", 9))
+        self._gateway_url_input.setFixedHeight(32)
+        self._gateway_url_input.setPlaceholderText(DEFAULT_GATEWAY_BASE_URL)
+        self._gateway_url_input.setText(str(
+            config.get("gateway_base_url") or config.get("gateway_url")
+            or DEFAULT_GATEWAY_BASE_URL).strip())
+        self._gateway_url_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000d12; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        layout.addWidget(self._gateway_url_input)
+
+        self._gateway_model_label = _lbl("GATEWAY MODEL ID (optional)", 8,
+                                         color=C.TEXT_DIM,
+                                         align=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self._gateway_model_label)
+        self._gateway_model_input = QLineEdit()
+        self._gateway_model_input.setFont(QFont("Courier New", 9))
+        self._gateway_model_input.setFixedHeight(32)
+        self._gateway_model_input.setPlaceholderText(
+            f"optional; default {DEFAULT_GATEWAY_CHAT_MODEL}")
+        self._gateway_model_input.setText(str(
+            config.get("gateway_model") or "").strip())
+        self._gateway_model_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000d12; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        layout.addWidget(self._gateway_model_input)
+        self._provider_input.currentIndexChanged.connect(
+            self._update_provider_fields)
+        self._update_provider_fields()
         layout.addSpacing(12)
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
@@ -1150,10 +1211,10 @@ class SetupOverlay(QWidget):
         builtin_btn.setFixedHeight(34)
         builtin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         builtin_btn.setToolTip(
-            "Downloads a real neural net onto this Mac once (auto-sized\n"
-            "model: ~0.5–2 GB), then\n"
-            "ADHITHIYA thinks entirely offline — no account, no bill,\n"
-            "no internet needed. Apache-2.0 Qwen2.5 model + llama.cpp.")
+            "Downloads an open-weight neural net onto this computer once\n"
+            "(auto-sized model: ~0.5–2 GB), then ADHITHIYA can think offline.\n"
+            "No account, subscription, or ongoing internet needed.\n"
+            "Apache-2.0 Qwen2.5 model + llama.cpp.")
         builtin_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; color: {C.PRI};
@@ -1165,8 +1226,8 @@ class SetupOverlay(QWidget):
         """)
         builtin_btn.clicked.connect(self._submit_builtin)
         layout.addWidget(builtin_btn)
-        layout.addWidget(_lbl("everything installs automatically — watch the log · macOS 12 "
-                              "compiles once (≈15–25 min), model auto-sized (≈0.5–2 GB)",
+        layout.addWidget(_lbl("engine installs automatically · older macOS may compile once · "
+                              "model auto-sized (≈0.5–2 GB); watch the log",
                               7, color=C.TEXT_DIM))
 
         local_btn = QPushButton("💻  RUN FULLY LOCAL — no key needed")
@@ -1184,6 +1245,23 @@ class SetupOverlay(QWidget):
         """)
         local_btn.clicked.connect(self._submit_local)
         layout.addWidget(local_btn)
+
+    def _update_provider_fields(self, *_):
+        provider = self._provider_input.currentData()
+        labels = {
+            "auto": ("API KEY — AUTO-DETECT", "paste one provider API key"),
+            "groq": ("GROQ API KEY", "gsk-…"),
+            "openai": ("OPENAI API KEY", "sk-…"),
+            "gateway": ("GATEWAY API KEY", "gateway key"),
+        }
+        label, placeholder = labels.get(provider, labels["auto"])
+        self._key_label.setText(label)
+        self._key_input.setPlaceholderText(placeholder)
+        show_gateway = provider in {"gateway", "auto"}
+        self._gateway_url_label.setVisible(show_gateway)
+        self._gateway_url_input.setVisible(show_gateway)
+        self._gateway_model_label.setVisible(show_gateway)
+        self._gateway_model_input.setVisible(show_gateway)
 
     def _submit_local(self):
         self.done_local.emit(self._sel_os)
@@ -1213,6 +1291,8 @@ class SetupOverlay(QWidget):
                 """)
 
     def _submit(self):
+        selected_provider = self._provider_input.currentData() or "auto"
+        auto_detected = selected_provider == "auto"
         key = self._key_input.text().strip()
         if not key:
             self._key_input.setStyleSheet(
@@ -1220,7 +1300,38 @@ class SetupOverlay(QWidget):
                 f" QLineEdit {{ border: 1px solid {C.RED}; }}"
             )
             return
-        self.done.emit(key, self._sel_os)
+
+        gateway_url = ""
+        gateway_model = ""
+        provider = selected_provider
+        if auto_detected:
+            gateway_url = self._gateway_url_input.text().strip()
+            from core.llm import infer_provider_from_api_key
+            provider = infer_provider_from_api_key(key, gateway_url)
+            if provider is None:
+                self._key_label.setText(
+                    "KEY NOT RECOGNISED — CHOOSE A PROVIDER BELOW")
+                self._key_input.setStyleSheet(
+                    self._key_input.styleSheet() +
+                    f" QLineEdit {{ border: 1px solid {C.RED}; }}"
+                )
+                return
+
+        if provider == "gateway":
+            gateway_url = self._gateway_url_input.text().strip()
+            try:
+                from core.llm import validate_gateway_base_url
+                gateway_url = validate_gateway_base_url(gateway_url)
+            except ValueError:
+                self._gateway_url_input.setStyleSheet(
+                    self._gateway_url_input.styleSheet() +
+                    f" QLineEdit {{ border: 1px solid {C.RED}; }}"
+                )
+                return
+            gateway_model = self._gateway_model_input.text().strip()
+
+        self.done.emit(
+            provider, key, gateway_url, gateway_model, self._sel_os, auto_detected)
 
 
 class HueWheel(QWidget):
@@ -2573,7 +2684,7 @@ class MainWindow(QMainWindow):
             sh = Dispatch("WScript.Shell")
             sc = sh.CreateShortCut(lnk)
             sc.TargetPath       = target
-            sc.Arguments        = f'"{args}"'
+            sc.Arguments        = f'"{args}"' if args else ""
             sc.WorkingDirectory = work_dir
             sc.Description      = "ADHITHIYA AI Assistant"
             sc.IconLocation     = icon_loc
@@ -2584,11 +2695,15 @@ class MainWindow(QMainWindow):
 
         # ── Option 2: wscript.exe + VBScript (always available on Windows,
         #    GUI-mode executable — never opens a console window) ────────────
+        argument_line = (
+            f'sc.Arguments = Chr(34) & "{args}" & Chr(34)'
+            if args else 'sc.Arguments = ""'
+        )
         vbs = "\n".join([
             'Set ws = CreateObject("WScript.Shell")',
             f'Set sc = ws.CreateShortcut("{lnk}")',
             f'sc.TargetPath = "{target}"',
-            f'sc.Arguments = Chr(34) & "{args}" & Chr(34)',
+            argument_line,
             f'sc.WorkingDirectory = "{work_dir}"',
             'sc.Description = "ADHITHIYA AI Assistant"',
             f'sc.IconLocation = "{icon_loc}"',
@@ -2711,12 +2826,23 @@ class MainWindow(QMainWindow):
 
             # ── Windows ───────────────────────────────────────────────────────
             if _os == "Windows":
-                pythonw  = python.parent / "pythonw.exe"
-                target   = str(pythonw if pythonw.exists() else python)
-                lnk      = str(desktop / "ADHITHIYA.lnk")
-                icon_loc = str(ico_path) if ico_path.exists() else f"{target},0"
-                self._create_lnk_windows(lnk, target, str(script),
-                                         str(script.parent), icon_loc)
+                lnk = str(desktop / "ADHITHIYA.lnk")
+                if getattr(sys, "frozen", False):
+                    # A one-file build unpacks into a temporary _MEIPASS folder;
+                    # point at the persistent EXE, not the temporary main.py.
+                    target = str(Path(sys.executable).resolve())
+                    args = ""
+                    work_dir = str(Path(sys.executable).resolve().parent)
+                else:
+                    pythonw = python.parent / "pythonw.exe"
+                    target = str(pythonw if pythonw.exists() else python)
+                    args = str(script)
+                    work_dir = str(script.parent)
+                if getattr(sys, "frozen", False):
+                    icon_loc = f"{target},0"  # icon is embedded in the executable
+                else:
+                    icon_loc = str(ico_path) if ico_path.exists() else f"{target},0"
+                self._create_lnk_windows(lnk, target, args, work_dir, icon_loc)
 
             # ── macOS — proper .app bundle (no Terminal window) ───────────────
             elif _os == "Darwin":
@@ -3677,10 +3803,14 @@ class MainWindow(QMainWindow):
                 if currently_on:
                     winreg.DeleteValue(reg, "ADHITHIYA_AI")
                 else:
-                    pythonw = Path(sys.executable).parent / "pythonw.exe"
-                    exe = str(pythonw if pythonw.exists() else sys.executable)
+                    if getattr(sys, "frozen", False):
+                        command = f'"{Path(sys.executable).resolve()}"'
+                    else:
+                        pythonw = Path(sys.executable).parent / "pythonw.exe"
+                        exe = str(pythonw if pythonw.exists() else sys.executable)
+                        command = f'"{exe}" "{script}"'
                     winreg.SetValueEx(reg, "ADHITHIYA_AI", 0, winreg.REG_SZ,
-                                      f'"{exe}" "{script}"')
+                                      command)
                 winreg.CloseKey(reg)
             elif _OS == "Darwin":
                 plist_dir = Path.home() / "Library" / "LaunchAgents"
@@ -3939,15 +4069,32 @@ class MainWindow(QMainWindow):
         d = _read_full_config()
         if not d:
             return False
-        if str(d.get("provider", "")).strip().lower() in ("local", "builtin"):
+        provider = str(d.get("provider", "")).strip().lower()
+        if provider not in {"groq", "openai", "gateway", "local", "builtin"}:
+            provider = _active_provider()
+        if provider in {"unconfigured", "ambiguous", "unknown"}:
+            return False
+        if provider in ("local", "builtin"):
             return bool(d.get("os_system"))
-        key = d.get("groq_api_key") or d.get("openai_api_key")
+        if provider == "gateway":
+            key = d.get("gateway_api_key") or d.get("api_key")
+            try:
+                from core.llm import DEFAULT_GATEWAY_BASE_URL, validate_gateway_base_url
+                validate_gateway_base_url(
+                    d.get("gateway_base_url") or d.get("gateway_url")
+                    or DEFAULT_GATEWAY_BASE_URL)
+            except ValueError:
+                return False
+        elif provider == "groq":
+            key = d.get("groq_api_key") or d.get("api_key")
+        else:
+            key = d.get("openai_api_key") or d.get("api_key")
         return bool(key) and bool(d.get("os_system"))
 
     def _show_setup(self):
         ov = SetupOverlay(self.centralWidget())
         cw = self.centralWidget()
-        ow, oh = 460, 468
+        ow, oh = 520, 610
         ov.setGeometry(
             (cw.width()  - ow) // 2,
             (cw.height() - oh) // 2,
@@ -3959,21 +4106,19 @@ class MainWindow(QMainWindow):
         ov.show()
         self._overlay = ov
 
-    def _on_setup_done(self, key: str, os_name: str):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+    def _on_setup_done(self, provider: str, key: str, gateway_url: str,
+                       gateway_model: str, os_name: str,
+                       auto_detected: bool = False):
         existing = _read_full_config()
-        _prov = _active_provider()
-        data = {
-            **existing,
-            "provider": _prov,
-            "os_system": os_name,
-            "assistant_name": existing.get("assistant_name", DEFAULT_ASSISTANT_NAME),
-        }
-        if _prov == "groq":
-            data["groq_api_key"] = key
-        elif _prov == "openai":
-            data["openai_api_key"] = key
-        API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        from memory.config_manager import save_api_keys
+        save_api_keys(
+            key, provider,
+            gateway_base_url=gateway_url if provider == "gateway" else None,
+            gateway_model=gateway_model if provider == "gateway" else None,
+            os_system=os_name,
+            assistant_name=existing.get("assistant_name", DEFAULT_ASSISTANT_NAME),
+            persist_provider=not auto_detected,
+        )
         self._ready = True
         if self._overlay:
             self._overlay.hide()

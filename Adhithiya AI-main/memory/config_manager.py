@@ -75,23 +75,75 @@ _PERMS_HARDENED = False
 def config_exists() -> bool:
     return CONFIG_FILE.exists()
 
-def save_api_keys(api_key: str, provider: str = "groq") -> None:
+def save_api_keys(api_key: str, provider: str | None = None, *,
+                  gateway_base_url: str | None = None,
+                  gateway_model: str | None = None,
+                  os_system: str | None = None,
+                  assistant_name: str | None = None,
+                  persist_provider: bool | None = None) -> None:
+    """Save credentials without replacing unrelated settings.
+
+    If ``provider`` is omitted, infer it from the key prefix or a supplied
+    gateway URL. Gateway credentials use the same private atomic config file
+    as the other cloud keys. Existing explicit-provider callers remain valid.
+    """
     ensure_config_dir()
 
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-
-    p = str(provider).strip().lower()
-    data["provider"] = p
+    # Include legacy-file settings too so saving a provider does not silently
+    # discard a user's older preferences when migrating to the primary file.
+    data = load_api_keys()
+    requested_provider = str(provider or "").strip().lower()
+    explicit_provider = requested_provider not in ("", "auto")
+    p = requested_provider
+    if not p or p == "auto":
+        key = api_key.strip().lower()
+        if gateway_base_url and gateway_base_url.strip():
+            p = "gateway"
+        elif key.startswith(("gsk_", "gsk-")):
+            p = "groq"
+        elif key.startswith(("sk-or-", "or-v1-")):
+            p = "gateway"
+        elif key.startswith("sk-"):
+            p = "openai"
+        else:
+            raise ValueError(
+                "Cannot infer the provider from this API key. Pass a provider "
+                "or a custom gateway_base_url."
+            )
+    if p not in {"groq", "openai", "gateway", "local", "builtin"}:
+        raise ValueError(f"Unsupported provider: {p!r}")
+    if persist_provider is None:
+        persist_provider = explicit_provider
+    if persist_provider:
+        data["provider"] = p
+    else:
+        data.pop("provider", None)
     if p == "groq":
         data["groq_api_key"] = api_key.strip()
     elif p == "openai":
         data["openai_api_key"] = api_key.strip()
+    elif p == "gateway":
+        data["gateway_api_key"] = api_key.strip()
+        if gateway_base_url is not None:
+            data["gateway_base_url"] = gateway_base_url.strip()
+        if gateway_model is not None:
+            if gateway_model.strip():
+                data["gateway_model"] = gateway_model.strip()
+            else:
+                data.pop("gateway_model", None)
+    # When setup inferred the provider from a pasted key, omit the provider
+    # field if that key is unique. Keep an explicit choice only when older
+    # saved keys would otherwise make routing ambiguous.
+    if not persist_provider:
+        cloud_key_fields = ("groq_api_key", "openai_api_key", "gateway_api_key")
+        if sum(bool(str(data.get(field) or "").strip())
+               for field in cloud_key_fields) != 1:
+            data["provider"] = p
     # local / builtin need no key — the provider flag alone is the config.
+    if os_system is not None:
+        data["os_system"] = os_system
+    if assistant_name is not None and not data.get("assistant_name"):
+        data["assistant_name"] = assistant_name.strip() or DEFAULT_ASSISTANT_NAME
 
     _atomic_save(data)
 
@@ -140,8 +192,9 @@ def get_groq_key() -> str | None:
 
 def is_configured() -> bool:
     data = load_api_keys()
-    key = data.get("groq_api_key") or data.get("openai_api_key")
-    return bool(key and len(str(key)) > 15)
+    keys = (data.get("groq_api_key"), data.get("openai_api_key"),
+            data.get("gateway_api_key"), data.get("api_key"))
+    return any(len(str(key or "").strip()) > 15 for key in keys)
 
 
 def get_assistant_name() -> str:

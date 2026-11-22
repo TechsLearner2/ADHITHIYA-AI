@@ -1,32 +1,35 @@
 # ⚙️ ADHITHIYA
 
-### A real-time, voice-first personal AI assistant for your Mac
+### A real-time, voice-first personal AI assistant for Windows (also supports macOS/Linux)
 
-ADHITHIYA is a cinematic, voice-first assistant that hears you, talks back, sees
-your screen, and controls your computer — by voice. The AI brain runs on
-**Groq by default — completely free, no credit card** — with OpenAI as an
-optional paid upgrade, both behind one provider layer (`core/llm.py`), so
-swapping is a one-line config change.
+ADHITHIYA is a voice-first assistant that hears you, talks back, sees your
+screen, and controls your computer. It selects the cloud provider from the
+configured API key when `provider` is omitted; there is **no implicit cloud
+provider**. Groq is a free option, with OpenAI and OpenAI-compatible gateways
+also supported through one provider layer (`core/llm.py`).
 
-- **Free (default):** Groq — `openai/gpt-oss-120b` chat (auto-falls back to
-  `gpt-oss-20b` / `kimi-k2`), `whisper-large-v3-turbo` speech-to-text, an
-  **Orpheus** voice for speech (falls back to your Mac's `say`), and a **Qwen**
-  vision model for "look at my screen" (preview — see the note below).
+- **Free option:** Groq — `openai/gpt-oss-120b` chat (auto-falls back to
+  `gpt-oss-20b` / `kimi-k2`), `whisper-large-v3-turbo` speech-to-text, and an
+  **Orpheus** voice (falls back to Windows' built-in speech on Windows, or
+  `say` on macOS). A **Qwen** vision model handles "look at my screen" requests.
 
   > **One-time step:** the Orpheus voice needs you to accept its terms once at
   > [console.groq.com/playground?model=canopylabs%2Forpheus-v1-english](https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english)
-  > — otherwise ADHITHIYA speaks with your Mac's voice (everything else works).
-- **Fully local (free forever, private, offline):** Ollama chat on your own Mac
-  (`qwen3:8b` by default — the best 8B-class tool-calling brain of 2026) + your
-  Mac's built-in `say` voice. Hearing uses local whisper if installed, otherwise
-  your free Groq key. Nothing breaks when a cloud provider changes its mind.
+  > — otherwise ADHITHIYA uses your computer's built-in speech voice.
+- **Fully local (free forever, private, offline):** Ollama chat on your
+  computer (`qwen3:8b` by default) plus the operating system's built-in speech
+  voice. Hearing uses local Whisper if installed, otherwise your free Groq key.
 - **🧠 Built-in brain (NEW — $0 forever, no key, no Ollama):** a real neural
-  net that lives on your Mac. One download (~1–2 GB, model size picked
-  for your hardware) and ADHITHIYA thinks entirely
-  offline — no account, no API key, no credit card, no internet needed. See the
-  section below.
+  net that lives on your computer. One download (model size selected for your
+  hardware) and ADHITHIYA thinks offline — no account, API key, or subscription.
+  See the section below.
 - **Paid (optional):** OpenAI — `gpt-4o-mini` chat, `whisper-1`, OpenAI TTS, and
   `gpt-image-1` image generation (creating images still needs OpenAI).
+- **Gateway (optional):** route chat through any OpenAI-compatible gateway.
+  Choose **OPENAI-COMPATIBLE GATEWAY** on setup and enter its base URL and API
+  key. The default endpoint/model target OpenRouter; the model ID is optional.
+  Tool calling depends on the model. Speech-to-text and speech output require a
+  gateway that also proxies OpenAI audio APIs (OpenRouter chat alone does not).
 
 ---
 
@@ -40,22 +43,26 @@ a provider, and it never sends your voice or screen anywhere.
 
 1. Launch ADHITHIYA.
 2. On the setup screen click **"INSTALL BUILT-IN BRAIN — free, offline, no key"**.
-3. **That's it.** The app does everything from here and reports each step in
-   the log: installs `cmake` if missing, opens Apple's Xcode installer if
-   needed (click **Install** once), compiles the engine (macOS 12, one-time),
-   downloads the model (auto-sized, resumable), starts the brain and warms
-   it. Offline hearing (`faster-whisper`) is also installed automatically
-   when Python 3.12 is present. When the log says the brain is online, talk
-   to it.
+3. **That's it.** The app reports each step in the log: it downloads the
+   platform-specific llama.cpp engine and a model (auto-sized and resumable),
+   starts the local brain, then warms it. Older macOS versions may need a
+   one-time engine compile with Apple's Xcode tools. Source installs can
+   install `faster-whisper` for offline hearing; the Windows `.exe` build
+   includes its code and downloads the speech model when first used. When the
+   log says the brain is online, talk to it.
 
-Power users can run the same full setup from the terminal in one command
-(also writes `"provider": "builtin"` into the config):
+Power users can run the same full setup from a terminal (also writes
+`"provider": "builtin"` into the config):
 
+```powershell
+# Windows PowerShell, from the project folder
+py -3.12 -m core.builtin_brain bootstrap
+py -3.12 -m core.builtin_brain status
+py -3.12 -m core.builtin_brain start
 ```
-python3 -m core.builtin_brain bootstrap
-python3 -m core.builtin_brain status           # what's installed
-python3 -m core.builtin_brain start / stop / restart
-```
+
+On macOS/Linux, use `python3 -m core.builtin_brain bootstrap` and the same
+`status`, `start`, `stop`, or `restart` actions.
 
 **Model profiles** — your machine's power dial (set `"builtin_profile"` in
 `config/api_keys.json`):
@@ -65,14 +72,14 @@ python3 -m core.builtin_brain start / stop / restart
 | `tiny` | Qwen2.5 0.5B Q4 | ≈ 0.5 GB | instant replies, basic chat |
 | `fast` | Qwen2.5 1.5B Q4 | ≈ 1 GB | quick answers, decent smarts |
 | `balanced` | Qwen2.5 3B Q4 | ≈ 2 GB | **recommended default** — strong reasoning + tools, still conversational speed |
-| `strong` | Qwen2.5 7B Q4 | ≈ 4.7 GB | **max power** — biggest model your Mac can hold; replies take patience |
+| `strong` | Qwen2.5 7B Q4 | ≈ 4.7 GB | **max power** — largest profile; replies take patience and need sufficient free RAM |
 
-**How powerful is it really?** On a 2015 dual-core i5 like the Early-2015
-MacBook Pro: `balanced` answers in a few seconds per sentence and is the
-sweet spot; `strong` thinks much harder but each answer can take many seconds
-to minutes. If no profile is configured, ADHITHIYA picks `balanced` for
-16 GB machines (even modest CPUs), `fast` only for ≤ 2-core/8 GB combos, and
-`tiny` under 8 GB RAM. On Apple Silicon, `balanced` is near-instant.
+**How powerful is it really?** Performance depends on your CPU and available
+memory. `balanced` is a practical default; `strong` reasons more deeply but
+can take much longer on a CPU-only computer. If no profile is configured,
+ADHITHIYA picks `balanced` for 16 GB machines, `fast` for lower-memory / low-core
+systems, and `tiny` under 8 GB RAM. Apple Silicon and modern GPUs can make local
+responses much faster.
 
 > Tip: for essay-length answers raise the reply cap with
 > `"builtin_max_tokens": 4096` in config (default 1024; tool loops always
@@ -90,12 +97,12 @@ private, `true` = always cloud-first, unset = auto. (This is exactly the
 Max-power all the time: set `"provider": "groq"` — every turn uses the
 ~120B-class free brain (needs internet + free key; no card).
 
-On Apple Silicon replies flow at reading speed; on Intel Macs expect a bit of
-thinking time (the `tiny`/`fast` profiles stay snappy). Any other GGUF can be
-used via `"builtin_model_url": "https://…/model.gguf"`.
+On supported Windows x64 computers, ADHITHIYA downloads the matching official
+llama.cpp engine automatically; macOS uses the release appropriate for its
+version. Any compatible GGUF can be used via `"builtin_model_url":
+"https://…/model.gguf"`.
 
-**Which engine your macOS gets** (picked automatically; verified against the
-official llama.cpp binaries):
+**macOS engine compatibility** (picked automatically):
 
 | macOS | Engine |
 |---|---|
@@ -117,12 +124,13 @@ python3 -m core.builtin_brain bootstrap   # = everything (see above)
 Everything after that is identical: model download is resumable, the brain
 runs offline, and the app starts/warms it automatically at launch.
 
-Hearing & voice are the same as Ollama local mode: ADHITHIYA speaks with your
-Mac's `say` voice for free. For hearing, the app auto-installs offline
-`faster-whisper` when running on Python 3.12 (the launcher prefers it on
-macOS 12); otherwise it will happily use a free Groq key **if you add one**
-(the brain itself never needs it). Vision and image generation still need a
-cloud provider — the built-in brain is a text brain.
+Hearing and speech use your operating system's voice stack. Windows uses its
+built-in SAPI voice; macOS uses `say`. Source installs can automatically add
+`faster-whisper` for offline hearing, and the Windows `.exe` includes the
+runtime code (the Whisper model is downloaded on first use). If you don't have
+offline Whisper available, add a free Groq key for speech-to-text — the brain
+itself never needs one. Vision and image generation still need a cloud
+provider; the built-in brain is text-only.
 
 > **Licence note:** Qwen2.5 is Apache-2.0 (free for any use, including
 > commercial). Engine builds come from [llama.cpp](https://github.com/ggml-org/llama.cpp)
@@ -169,16 +177,43 @@ onnxruntime dependency has no Python 3.13 build for macOS older than 13.
 - 🤖 **Autonomous agent (`run_task`)** — give it one goal and it plans and executes a whole multi-step job by itself: search the web, read pages, work with files, run safe dev commands, set reminders, check calendar/notes, even generate images — then reports back. (Can't delete/send/restart — those still ask you.)
 - 🖼️ **Image generation** — "draw me a wallpaper of…" and it creates an image saved to your Pictures folder
 - 📄 **Deep web reading (`web_fetch`)** — reads the actual page behind any link and summarises it
-- 📱 **Remote dashboard** — control it from your phone via QR code pairing. Fully two-way: speak or type from the phone, and ADHITHIYA's **voice answers play on the phone too** (🔊 toggle), so the assistant "lives" across both devices — the Mac and your phone stay in sync
+- 📱 **Remote dashboard** — control it from your phone via QR code pairing. Fully two-way: speak or type from the phone, and ADHITHIYA's **voice answers play on the phone too** (🔊 toggle), so the assistant "lives" across both devices — your computer and phone stay in sync
 - 📚 **Study buddy** — say *"take notes for my class"* and it records the lecture audio, transcribes it live, and writes running notes. Then *"summarize my notes"* turns them into a study guide, *"read my notes"* reads them back, and *"export my notes"* saves them to your Desktop. Works with the existing NotebookLM + flashcards (drop notes into your signed-in NotebookLM browser session)
 - 🎨 **Customization** — change the assistant name, your name, and the whole UI colour
 - ⚡ **Auto-start at login**, desktop shortcut, system tray, hotkeys (F4 mute · F11 fullscreen · Esc interrupt)
 
 ---
 
-## 🚀 Quick start (macOS)
+## 🚀 Quick start
 
-### Option A — double-click to run (quickest)
+### Windows 10/11 — run from source
+
+1. Install **64-bit Python 3.11, 3.12, or 3.13** from
+   [python.org](https://www.python.org/downloads/windows/). The Python Launcher
+   (`py`) is recommended.
+2. Extract the project folder and double-click **`run_adhithiya.bat`**. On its
+   first run it creates a virtual environment and installs the app's packages;
+   then it starts ADHITHIYA. Keep the project folder in place so the launcher
+   and environment remain available.
+3. On the setup screen enter a free **Groq API key** from
+   [console.groq.com](https://console.groq.com), or select a no-key local brain.
+   Allow microphone/camera access in **Windows Settings → Privacy & security**
+   if Windows asks.
+
+### Build a standalone Windows `.exe`
+
+On Windows, double-click **`build_windows.bat`**. It creates a single
+**`dist/ADHITHIYA.exe`** with the app dependencies and offline Whisper runtime
+included; Python is not needed on the computer where the `.exe` runs. The
+built-in brain and its model download into `%USERPROFILE%\.adhithiya`; Whisper
+model weights use the Hugging Face cache under your user profile. Diagnostic
+output is written to `%USERPROFILE%\.adhithiya\app.log`. The build must run
+on Windows (PyInstaller cannot cross-build a Windows executable from macOS/Linux).
+A matching GitHub Actions job also builds it on pull requests or when manually
+run, and uploads an `ADHITHIYA-Windows` artifact. This unsigned self-build may
+trigger a Windows SmartScreen warning.
+
+### macOS — double-click to run (quickest)
 
 Just double-click **`run_adhithiya.command`** in Finder. It sets up Python
 dependencies automatically on first run (one-time ~1–2 GB download), then
@@ -205,11 +240,16 @@ pip install -r requirements.txt
 python main.py
 ```
 
-On first launch, enter your **Groq API key** — free from
-[console.groq.com](https://console.groq.com), no card needed. (To use the paid
-OpenAI brain instead, set `"provider": "openai"` in the config and enter an
-OpenAI key.) When macOS asks, allow **microphone, camera, Accessibility and
-Screen Recording** in *System Settings → Privacy & Security*.
+On first launch, choose **AUTO — detect from API key** and enter one key
+(known Groq, OpenAI, and OpenRouter key formats are detected), or select its
+provider explicitly. For a custom OpenAI-compatible gateway, choose
+**OPENAI-COMPATIBLE GATEWAY** and enter its URL and key; the model ID is
+optional and uses `openrouter/auto` unless overridden. A single saved key is
+enough; no `provider` or `chat_model` entry is required. Settings are saved
+locally in
+`~/.adhithiya/config/api_keys.json`. On macOS, allow **microphone, camera,
+Accessibility and Screen Recording** in *System Settings → Privacy & Security*
+when prompted.
 
 > ### 🍎 On macOS 12 (Monterey)?
 > Use **Python 3.11–3.13**. The launchers auto-detect macOS 12 and install
@@ -261,10 +301,26 @@ committed**). Useful options:
 }
 ```
 
+For a gateway, choose it in the setup screen or use a configuration like this
+(replace the placeholder locally; the model line is optional and defaults to
+`openrouter/auto`; do not commit your key):
+
+```json
+{
+  "provider": "gateway",
+  "gateway_api_key": "YOUR_GATEWAY_API_KEY",
+  "gateway_base_url": "https://openrouter.ai/api/v1"
+}
+```
+
 | Key | What it does |
 | --- | --- |
-| `provider` | Which brain to use: `groq` (free, default), `builtin` (offline brain built into the app), `local` (Ollama) or `openai` (paid) |
-| `groq_api_key` / `openai_api_key` | API key for the active provider (`builtin`/`local` need none) |
+| `provider` | Optional explicit brain selection: `groq`, `openai`, `gateway`, `builtin` or `local`. If omitted, one saved cloud key selects its provider; multiple keys require an explicit choice |
+| `groq_api_key` / `openai_api_key` / `gateway_api_key` | Provider-specific API key; a single key is enough for automatic provider selection |
+| `api_key` | Optional generic key; common `gsk_`, `sk-or-`, and `sk-` prefixes are detected (otherwise choose the provider explicitly) |
+| `gateway_base_url` | OpenAI-compatible gateway base URL; default `https://openrouter.ai/api/v1`. `gateway_url` is accepted as an alias |
+| `gateway_model` | Optional gateway chat model ID (default `openrouter/auto`; set this if your endpoint does not support auto-routing) |
+| `gateway_chat_fallbacks` | Optional comma-separated model IDs to try if the gateway rejects the primary model |
 | `builtin_profile` | Built-in brain size: `tiny`/`fast`/`balanced` (auto default) /`strong` |
 | `builtin_max_tokens` | Longest single reply in tokens (default `1024`; raise for essays) |
 | `builtin_hybrid` | Auto-power routing (`false` = strictly local · `true` = cloud-first · unset = auto). Needs a saved `groq_api_key` |
@@ -274,7 +330,7 @@ committed**). Useful options:
 | `builtin_ctx_size` | Context window in tokens (default `8192`) |
 | `builtin_gpu_layers` | GPU offload layers (Apple Silicon: try `99`; default `0` = CPU) |
 | `assistant_name` / `user_name` | Change what it calls itself / you |
-| `chat_model` | Chat model (Groq default `openai/gpt-oss-120b`; OpenAI default `gpt-4o-mini`) |
+| `chat_model` | Optional general chat-model override (Groq default `openai/gpt-oss-120b`; OpenAI default `gpt-4o-mini`). The gateway uses `gateway_model` |
 | `stt_model` | Speech-to-text model (Groq default `whisper-large-v3-turbo`; OpenAI default `whisper-1`) |
 | `say_voice` | macOS voice used as the Groq speech **fallback** (e.g. `Samantha`); leave empty for the system voice |
 | `groq_tts_voice` | Groq Orpheus voice — `troy`, `autumn`, `hannah`, `austin` (default `troy`) |

@@ -14,7 +14,7 @@
     <key>RunAtLoad</key>
     <true/>
     <key>WorkingDirectory</key>
-    <string>/Users/techslearner/Downloads/Mark-LI-main</string>
+    <string>/Users/techslearner/Downloads/Adhithiya AI-main</string>
     <key>StandardOutPath</key>
     <string>/Users/techslearner/.adhithiya/launchagent.out.log</string>
     <key>StandardErrorPath</key>
