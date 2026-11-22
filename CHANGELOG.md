@@ -5,6 +5,12 @@ This repository has no tagged or published releases yet. Keep changes under
 
 ## Unreleased
 
+### Python runtime
+
+- Use Python 3.14 (currently 3.14.10) for Windows source and executable builds,
+  preserving offline Whisper support while moving beyond the previous 3.11–3.13
+  limit. CI now includes Python 3.14.
+
 ### Windows delivery
 
 - Rename the application folder to `Adhithiya AI-main` and align project and CI

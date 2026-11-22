@@ -58,9 +58,9 @@ Power users can run the same full setup from a terminal (also writes
 
 ```powershell
 # Windows PowerShell, from the project folder
-py -3.12 -m core.builtin_brain bootstrap
-py -3.12 -m core.builtin_brain status
-py -3.12 -m core.builtin_brain start
+py -3.14 -m core.builtin_brain bootstrap
+py -3.14 -m core.builtin_brain status
+py -3.14 -m core.builtin_brain start
 ```
 
 On macOS/Linux, use `python3 -m core.builtin_brain bootstrap` and the same
@@ -190,9 +190,9 @@ onnxruntime dependency has no Python 3.13 build for macOS older than 13.
 
 ### Windows 10/11 — run from source
 
-1. Install **64-bit Python 3.11, 3.12, or 3.13** from
-   [python.org](https://www.python.org/downloads/windows/). The Python Launcher
-   (`py`) is recommended.
+1. Install **64-bit Python 3.14** (latest patch, currently 3.14.10) from
+   [python.org](https://www.python.org/downloads/windows/). The Windows launcher
+   and build script use Python 3.14 to keep offline speech support available.
 2. Extract the repository, open the **`Adhithiya AI-main`** project folder,
    and double-click **`run_adhithiya.bat`**. On its first run it creates a
    virtual environment and installs the app's packages, then starts ADHITHIYA.
@@ -390,7 +390,8 @@ shutting down.
   threading model, extension points and known debt.
 - **Tests:** `python -m pytest tests/` (offline-safe, no API keys needed).
   CI runs syntax checks on every `.py` plus the full suite on Python
-  3.11–3.13 for every push (`.github/workflows/ci.yml`).
+  3.11–3.14 for every push (`.github/workflows/ci.yml`). Windows app builds use
+  Python 3.14 to retain offline Whisper compatibility.
 
 ## 🧩 Writing your own plugin
 
