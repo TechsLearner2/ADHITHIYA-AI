@@ -2205,9 +2205,13 @@ def _ensure_offline_hearing(ui) -> None:
         return
 
     py = sys.version_info[:2]
-    supported = ((3, 11), (3, 12), (3, 13)) if sys.platform == "win32" else ((3, 11), (3, 12))
+    supported = (
+        ((3, 11), (3, 12), (3, 13), (3, 14))
+        if sys.platform == "win32"
+        else ((3, 11), (3, 12))
+    )
     if py not in supported:
-        versions = "3.11–3.13" if sys.platform == "win32" else "3.11 or 3.12"
+        versions = "3.11–3.14" if sys.platform == "win32" else "3.11 or 3.12"
         ui.write_log(f"SYS: 🎧 Fully-offline hearing needs Python {versions} "
                      f"(this app runs {py[0]}.{py[1]}). Use a supported Python "
                      "or add a free Groq key for speech-to-text.")

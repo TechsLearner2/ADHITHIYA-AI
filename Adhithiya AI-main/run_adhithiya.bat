@@ -5,25 +5,17 @@ cd /d "%~dp0"
 set "PY_CMD="
 where py >nul 2>&1
 if not errorlevel 1 (
-    py -3.12 -c "import sys; sys.exit(not ((3, 11) <= sys.version_info[:2] < (3, 14)))" >nul 2>&1
-    if not errorlevel 1 set "PY_CMD=py -3.12"
-    if not defined PY_CMD (
-        py -3.11 -c "import sys; sys.exit(not ((3, 11) <= sys.version_info[:2] < (3, 14)))" >nul 2>&1
-        if not errorlevel 1 set "PY_CMD=py -3.11"
-    )
-    if not defined PY_CMD (
-        py -3.13 -c "import sys; sys.exit(not ((3, 11) <= sys.version_info[:2] < (3, 14)))" >nul 2>&1
-        if not errorlevel 1 set "PY_CMD=py -3.13"
-    )
+    py -3.14 -c "import sys; sys.exit(not (sys.version_info[:2] == (3, 14) and sys.version_info >= (3, 14, 10)))" >nul 2>&1
+    if not errorlevel 1 set "PY_CMD=py -3.14"
 )
 if not defined PY_CMD (
-    python -c "import sys; sys.exit(not ((3, 11) <= sys.version_info[:2] < (3, 14)))" >nul 2>&1
+    python -c "import sys; sys.exit(not (sys.version_info[:2] == (3, 14) and sys.version_info >= (3, 14, 10)))" >nul 2>&1
     if not errorlevel 1 set "PY_CMD=python"
 )
 
 if not defined PY_CMD (
-    echo [ERROR] Python 3.11, 3.12, or 3.13 was not found.
-    echo Install 64-bit Python from https://www.python.org/downloads/windows/
+    echo [ERROR] Python 3.14.10 or a later 3.14 patch was not found.
+    echo Install 64-bit Python 3.14.10 or later from https://www.python.org/downloads/windows/
     echo and enable the Python Launcher during setup, then run this file again.
     pause
     exit /b 1
@@ -42,9 +34,9 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 set "VENV_PY=%CD%\.venv\Scripts\python.exe"
-"%VENV_PY%" -c "import struct, sys; sys.exit(not ((3, 11) <= sys.version_info[:2] < (3, 14) and struct.calcsize('P') == 8))" >nul 2>&1
+"%VENV_PY%" -c "import struct, sys; sys.exit(not (sys.version_info[:2] == (3, 14) and sys.version_info >= (3, 14, 10) and struct.calcsize('P') == 8))" >nul 2>&1
 if errorlevel 1 (
-    echo [ADHITHIYA] The existing environment uses an unsupported Python. Rebuilding it...
+    echo [ADHITHIYA] The existing environment is not a compatible Python 3.14.10+ environment. Rebuilding it...
     rmdir /s /q .venv
     %PY_CMD% -m venv .venv
     if errorlevel 1 goto :failed
@@ -68,6 +60,6 @@ exit /b 0
 :failed
 echo.
 echo [ERROR] ADHITHIYA did not start. The error details are shown above.
-echo Check that Python 3.11-3.13 and the Windows audio drivers are installed.
+echo Check that 64-bit Python 3.14.10+ and the Windows audio drivers are installed.
 pause
 exit /b 1
