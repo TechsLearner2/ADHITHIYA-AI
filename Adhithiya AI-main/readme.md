@@ -1,12 +1,14 @@
 # ⚙️ ADHITHIYA
 
-### A real-time, voice-first personal AI assistant for Windows (also supports macOS/Linux)
+### A voice-first Windows desktop assistant with a standalone `.exe` build (also supports macOS/Linux from source)
 
-ADHITHIYA is a voice-first assistant that hears you, talks back, sees your
-screen, and controls your computer. It selects the cloud provider from the
-configured API key when `provider` is omitted; there is **no implicit cloud
-provider**. Groq is a free option, with OpenAI and OpenAI-compatible gateways
-also supported through one provider layer (`core/llm.py`).
+ADHITHIYA is a voice-first desktop assistant for Windows, macOS, and Linux. It
+listens and speaks, understands screens, controls the computer with approval
+for sensitive actions, and can also run a small brain locally. For cloud use,
+first-run setup can detect supported providers from recognized API-key formats
+or a gateway URL. If a key is unrecognized, choose its provider explicitly; if
+multiple provider keys are saved, select which one to use. Groq is a free option;
+OpenAI and OpenAI-compatible gateways are also supported through `core/llm.py`.
 
 - **Free option:** Groq — `openai/gpt-oss-120b` chat (auto-falls back to
   `gpt-oss-20b` / `kimi-k2`), `whisper-large-v3-turbo` speech-to-text, and an
@@ -191,14 +193,15 @@ onnxruntime dependency has no Python 3.13 build for macOS older than 13.
 1. Install **64-bit Python 3.11, 3.12, or 3.13** from
    [python.org](https://www.python.org/downloads/windows/). The Python Launcher
    (`py`) is recommended.
-2. Extract the project folder and double-click **`run_adhithiya.bat`**. On its
-   first run it creates a virtual environment and installs the app's packages;
-   then it starts ADHITHIYA. Keep the project folder in place so the launcher
-   and environment remain available.
-3. On the setup screen enter a free **Groq API key** from
-   [console.groq.com](https://console.groq.com), or select a no-key local brain.
-   Allow microphone/camera access in **Windows Settings → Privacy & security**
-   if Windows asks.
+2. Extract the repository, open the **`Adhithiya AI-main`** project folder,
+   and double-click **`run_adhithiya.bat`**. On its first run it creates a
+   virtual environment and installs the app's packages, then starts ADHITHIYA.
+   Keep the project folder in place so the launcher and environment remain
+   available.
+3. On the setup screen choose **AUTO — detect from API key** and enter one
+   supported key, or select its provider explicitly. For a no-key option, install
+   the built-in brain or use a local Ollama model. Allow microphone/camera access
+   in **Windows Settings → Privacy & security** if Windows asks.
 
 ### Build a standalone Windows `.exe`
 
