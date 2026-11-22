@@ -212,9 +212,12 @@ built-in brain and its model download into `%USERPROFILE%\.adhithiya`; Whisper
 model weights use the Hugging Face cache under your user profile. Diagnostic
 output is written to `%USERPROFILE%\.adhithiya\app.log`. The build must run
 on Windows (PyInstaller cannot cross-build a Windows executable from macOS/Linux).
-A matching GitHub Actions job also builds it on pull requests or when manually
-run, and uploads an `ADHITHIYA-Windows` artifact. This unsigned self-build may
-trigger a Windows SmartScreen warning.
+A matching [GitHub Actions workflow](https://github.com/TechsLearner2/ADHITHIYA-AI/actions/workflows/windows-package.yml)
+also builds it for relevant pull requests, changes on `main`, or a manual run.
+To download a CI build, open a successful workflow run and download
+`ADHITHIYA-Windows` from its **Artifacts** section; artifacts are retained for
+14 days. This is a CI build, not a published release or installer. The unsigned
+self-build may trigger a Windows SmartScreen warning.
 
 ### macOS — double-click to run (quickest)
 
