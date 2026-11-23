@@ -22,42 +22,117 @@ from actions import web_search
 from actions import dev_agent
 
 
-# ── web_search: the DDG fallback must survive an LLM failure ─────────────────
+# ── web_search: every mode must use fetched results, never model memory ────────
 
 def _fake_ddg_results(query, max_results=6):
-    return [{"title": f"t {query}", "snippet": "ddg-snippet", "url": "https://x.example"}]
+    return [{
+        "title": f"Fetched: {query}",
+        "snippet": "This text came from the live-search backend.",
+        "url": "https://x.example/article",
+    }]
+
+
+def test_default_search_returns_fetched_result(monkeypatch):
+    monkeypatch.setattr(web_search, "_ddg_search", _fake_ddg_results)
+
+    out = web_search._search("test query")
+
+    assert "Live web search results" in out
+    assert "Fetched: test query" in out
+    assert "https://x.example/article" in out
+
+
+def test_empty_search_is_not_replaced_with_an_unsourced_answer(monkeypatch):
+    monkeypatch.setattr(web_search, "_ddg_search", lambda *_a, **_k: [])
+
+    out = web_search._search("test query")
+
+    assert out == "Live web search returned no source-linked results for: test query"
+
+
+def test_search_results_uses_ddgs_and_sanitizes_source_urls(monkeypatch):
+    calls = {}
+
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def text(self, query, max_results):
+            calls.update(query=query, max_results=max_results)
+            return [
+                {"title": "Real result", "body": "Fetched snippet.",
+                 "href": "https://Example.com/article?ref=search#part"},
+                {"title": "Unsafe URL", "body": "Do not keep this.",
+                 "href": "javascript:alert(1)"},
+            ]
+
+    monkeypatch.setattr(web_search, "_get_ddgs", lambda: FakeDDGS)
+
+    results = web_search.search_results("actual query", max_results=50)
+
+    assert calls == {"query": "actual query", "max_results": 10}
+    assert results == [{
+        "title": "Real result",
+        "snippet": "Fetched snippet.",
+        "url": "https://example.com/article?ref=search",
+    }]
 
 
 @pytest.mark.parametrize("mode_fn", [
-    web_search._search,
-    lambda q: web_search._research(q),
-    lambda q: web_search._price(q),
+    web_search._research,
+    web_search._price,
 ])
-def test_llm_failure_falls_back_to_ddg(monkeypatch, mode_fn):
-    """LLM raises → the except-branch must log (not crash) and return DDG text.
+def test_research_and_price_use_live_results(monkeypatch, mode_fn):
+    seen = []
 
-    Before the fix this raised NameError: _log_failure didn't exist, so the
-    DuckDuckGo fallback never ran at all.
-    """
-    def _boom(query):
-        raise RuntimeError("LLM down")
+    def fake_search(query, max_results=6):
+        seen.append((query, max_results))
+        return _fake_ddg_results(query, max_results)
 
-    monkeypatch.setattr(web_search, "_llm_answer", _boom)
-    monkeypatch.setattr(web_search, "_ddg_search", _fake_ddg_results)
-    monkeypatch.setattr(web_search, "_format_ddg",
-                        lambda q, results: f"FORMATTED({q}, {len(results)})")
+    monkeypatch.setattr(web_search, "_ddg_search", fake_search)
 
     out = mode_fn("test query")
-    assert out == "FORMATTED(test query, 1)"
+
+    assert "Fetched:" in out
+    assert seen
 
 
-def test_compare_falls_back_when_llm_fails(monkeypatch):
-    monkeypatch.setattr(web_search, "_llm_answer",
-                        lambda q: (_ for _ in ()).throw(RuntimeError("LLM down")))
-    monkeypatch.setattr(web_search, "_ddg_search", _fake_ddg_results)
+def test_news_does_not_fabricate_headlines_when_search_is_empty(monkeypatch):
+    monkeypatch.setattr(web_search, "_ddg_news", lambda *a, **k: [])
 
-    out = web_search._compare(["a", "b"], "speed")
-    assert "ddg-snippet" in out
+    out = web_search._news("test query")
+
+    assert "no source-linked articles" in out
+
+
+def test_compare_searches_each_item_and_preserves_sources(monkeypatch):
+    calls = []
+
+    def fake_search(query, max_results=6):
+        calls.append(query)
+        return _fake_ddg_results(query, max_results)
+
+    monkeypatch.setattr(web_search, "_ddg_search", fake_search)
+
+    out = web_search._compare(["item a", "item b"], "speed")
+
+    assert calls == ["item a speed", "item b speed"]
+    assert out.count("https://x.example/article") == 2
+    assert "live search comparison" in out.lower()
+
+
+def test_search_backend_error_is_reported_not_replaced_by_model_answer(monkeypatch):
+    def fail_search(*args, **kwargs):
+        raise web_search.WebSearchUnavailable("network unavailable")
+
+    monkeypatch.setattr(web_search, "_ddg_search", fail_search)
+
+    out = web_search.web_search({"query": "test query"})
+
+    assert out == "Live web search failed: network unavailable"
 
 
 # ── dev_agent: planner/writer stages must be callable ────────────────────────
@@ -440,6 +515,53 @@ def test_new_speech_waits_for_inflight_playback():
 
     waited2 = asyncio.run(stuck())
     assert 0.25 < waited2 < 2, waited2    # …bounded by the timeout, not a hang
+
+
+def test_long_tts_stream_backpressures_instead_of_truncating(monkeypatch):
+    """A bounded playback queue must not silently cut off long TTS replies."""
+    import asyncio
+
+    try:
+        import main
+        from core import llm
+    except Exception as e:  # headless box without the audio/UI stack
+        pytest.skip(f"main not importable here: {e}")
+
+    pcm = b"x" * (2400 * 60 + 123)  # longer than the normal queue can hold
+    monkeypatch.setattr(llm, "tts_wav", lambda _text: b"fake-wav")
+
+    async def no_wait():
+        return None
+
+    fake = SimpleNamespace(
+        _asst_name="ADHITHIYA",
+        ui=SimpleNamespace(write_log=lambda _message: None),
+        _session_log=[],
+        _dashboard=None,
+        _wav_to_pcm=lambda _wav, _rate: pcm,
+        _wait_playback_idle=no_wait,
+        _interrupted=False,
+        audio_in_queue=asyncio.Queue(maxsize=2),
+        _turn_done_event=asyncio.Event(),
+    )
+
+    async def drive():
+        async def consume():
+            played = bytearray()
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(
+                        fake.audio_in_queue.get(), timeout=0.1)
+                    played.extend(chunk)
+                except asyncio.TimeoutError:
+                    if fake._turn_done_event.is_set() and fake.audio_in_queue.empty():
+                        return bytes(played)
+
+        consumer = asyncio.create_task(consume())
+        await main.AdhithiyaAssistant._speak_text(fake, "a long reply")
+        return await asyncio.wait_for(consumer, timeout=3)
+
+    assert asyncio.run(drive()) == pcm
 
 
 # ── dashboard thread → QR overlay must hop to the GUI thread ─────────────────

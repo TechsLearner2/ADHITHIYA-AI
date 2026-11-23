@@ -1,6 +1,7 @@
 import os
 import shutil
 import platform
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -479,6 +480,48 @@ def get_file_info(path: str, name: str = "") -> str:
     except Exception as e:
         return f"Could not get file info: {e}"
 
+
+def open_item(path: str, name: str = "") -> str:
+    """Ask the operating system to open an existing item with its default app.
+
+    The same home-directory safety boundary used by file reads/writes applies;
+    a successful shell hand-off is not proof that a visible window appeared.
+    """
+    try:
+        base = _resolve_path(str(path or ""))
+        target = (base / str(name)) if name else base
+        if not _is_safe_path(target):
+            return f"Access denied: {target}"
+        if not target.exists():
+            return f"Not found: {target}"
+
+        if _OS == "Windows":
+            opener = getattr(os, "startfile", None)
+            if not callable(opener):
+                return "Could not open the item: the Windows shell opener is unavailable."
+            opener(str(target))
+        elif _OS in {"Darwin", "Linux"}:
+            command = "open" if _OS == "Darwin" else "xdg-open"
+            result = subprocess.run(
+                [command, str(target)], capture_output=True, timeout=10
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+                suffix = f": {detail[:240]}" if detail else ""
+                return f"Could not open '{target.name}' with the default app{suffix}."
+        else:
+            return f"Unsupported operating system: {_OS}"
+
+        return (
+            f"The operating system accepted the open request for '{target.name or target}'. "
+            "The app window was not independently verified."
+        )
+    except subprocess.TimeoutExpired:
+        return f"Could not confirm the open request for '{Path(str(path or '')).name}': timed out."
+    except Exception as exc:
+        return f"Could not open the requested item: {exc}"
+
+
 def file_controller(
     parameters: dict = None,
     response=None,
@@ -496,6 +539,9 @@ def file_controller(
     try:
         if action == "list":
             return list_files(path)
+
+        elif action == "open":
+            return open_item(path, name=name)
 
         elif action == "create_file":
             return create_file(path, name=name, content=params.get("content", ""))

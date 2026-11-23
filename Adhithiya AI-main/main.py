@@ -105,6 +105,8 @@ from memory.config_manager     import (
 from memory.config_manager     import DEFAULT_ASSISTANT_NAME
 from core.plugin_loader        import discover_plugins, USER_PLUGINS_DIR, USER_PLUGINS_PREFIX
 from core.plugin_builder       import run as plugin_builder_run
+from core.tool_results         import is_tool_failure, is_learnable_failure
+from core.deduplication       import RecentRequestGuard, ToolCallDeduplicator
 from core.project_agent       import AgentResult, ProjectAgent
 from core.self_recovery       import SelfRecovery
 from core.voice_gate           import VoiceGate
@@ -205,16 +207,23 @@ TOOL_DECLARATIONS = [
     {
         "name": "open_app",
         "description": (
-            "Opens any application on the computer. "
-            "Use this whenever the user asks to open, launch, or start any app, "
-            "website, or program. Always call this tool — never just say you opened it."
+            "Launches an installed desktop application by its exact name or a known exact alias. "
+            "Normally use this only for apps/programs; route websites and services "
+            "(for example Netflix, Instagram, Google Drive) to browser_control. Known service names "
+            "also redirect there as a fallback. "
+            "For an existing local file or folder, use file_controller action=open. "
+            "Do not guess a target; report only the launch status returned by this tool."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "app_name": {
                     "type": "STRING",
-                    "description": "Exact name of the application (e.g. 'WhatsApp', 'Chrome', 'Spotify')"
+                    "description": "Exact application name; common website/service names open their official site in the default browser."
+                },
+                "browser": {
+                    "type": "STRING",
+                    "description": "Optional browser for a website/service target: chrome, edge, firefox, opera, brave, vivaldi, or safari."
                 }
             },
             "required": ["app_name"]
@@ -223,11 +232,12 @@ TOOL_DECLARATIONS = [
     {
         "name": "web_search",
         "description": (
-            "Searches the web. Use for ANY question about current facts, events, prices, "
-            "or topics — always prefer this over guessing. "
-            "Modes: 'search' (default), 'news' (latest headlines on a topic), "
-            "'research' (deep comprehensive answer), 'price' (product cost lookup), "
-            "'compare' (side-by-side comparison of items)."
+            "Performs live web search and returns source-linked results. Use for ANY "
+            "question about current facts, events, prices, or topics — always prefer "
+            "this over guessing. If search is unavailable or empty, report that; "
+            "do not substitute model memory. Modes: 'search' (default), 'news' "
+            "(latest fetched news articles on a topic), 'research' (a wider set of "
+            "sources), 'price' (current price sources), 'compare' (live results for each item)."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -361,8 +371,9 @@ TOOL_DECLARATIONS = [
     {
         "name": "browser_control",
         "description": (
-            "Controls any web browser. Use for: opening websites, searching the web, "
-            "clicking elements, filling forms, scrolling, screenshots, navigation, any web-based task. "
+            "Controls any web browser. Use for websites and web services (not open_app), "
+            "web search, navigation, clicking elements, filling forms, scrolling, and screenshots. "
+            "Use go_to with a known URL/service domain; use search when the site or URL is unclear. "
             "Simple open/search requests launch the user's own browser normally (their real profile "
             "and logged-in accounts); interactive actions (click, type, fill_form...) attach an "
             "automation browser. "
@@ -392,16 +403,16 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "file_controller",
-        "description": "Manages files and folders: list, create, delete, move, copy, rename, read, write, find, disk usage.",
+        "description": "Manages files/folders. Use open for an existing local item, find to locate it, and read/write for contents; deletion requires confirmation.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
-                "path":        {"type": "STRING", "description": "File/folder path or shortcut: desktop, downloads, documents, home"},
+                "action":      {"type": "STRING", "description": "open | list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
+                "path":        {"type": "STRING", "description": "Exact file/folder path or shortcut: desktop, downloads, documents, home. For open, pass the item path or its containing folder."},
                 "destination": {"type": "STRING", "description": "Destination path for move/copy"},
                 "new_name":    {"type": "STRING", "description": "New name for rename"},
                 "content":     {"type": "STRING", "description": "Content for create_file/write"},
-                "name":        {"type": "STRING", "description": "File name to search for"},
+                "name":        {"type": "STRING", "description": "Exact item name under path (use for find/open when path is its folder)."},
                 "extension":   {"type": "STRING", "description": "File extension to search (e.g. .pdf)"},
                 "count":       {"type": "INTEGER", "description": "Number of results for largest"},
                 "confirmed":   {"type": "BOOLEAN", "description": "Set true only after the user explicitly confirms deletion."},
@@ -710,10 +721,13 @@ TOOL_DECLARATIONS = [
         "name": "plugin_builder",
         "description": (
             "Write a NEW ability (plugin) for ADHITHIYA when no existing tool or "
-            "plugin can do what the user asks. Action 'build' drafts the plugin "
-            "(goal describes what it should do; name is optional), shows a preview, "
-            "and — only after the user explicitly confirms with confirmed=true — "
-            "installs it and makes it live immediately. Action 'list' shows the "
+            "plugin can do what the user asks. Plugins are drafted for the detected "
+            "host OS, never selected randomly; required software must be checked "
+            "before use. Action 'build' researches the goal using live web search, "
+            "drafts the plugin (goal describes what it should "
+            "do; name is optional), shows a preview, and — only after the user "
+            "explicitly confirms with confirmed=true — installs it and makes it live. "
+            "Action 'list' shows the "
             "abilities that were built; action 'remove' (confirmed=true) deletes "
             "one ADHITHIYA built. Never install or remove without the user's "
             "explicit confirmation."
@@ -724,7 +738,7 @@ TOOL_DECLARATIONS = [
                 "action": {"type": "STRING", "description": "build | list | remove"},
                 "goal": {"type": "STRING", "description": "What the new ability should do, in one or two sentences."},
                 "name": {"type": "STRING", "description": "Optional snake_case name for the new ability."},
-                "confirmed": {"type": "BOOLEAN", "description": "Set true only after the user explicitly approved installing or removing."},
+                "confirmed": {"type": "BOOLEAN", "description": "For build, set true only after the user approves the exact previewed draft; for remove, only after explicit approval of the named ability."},
             },
             "required": ["action"],
         },
@@ -809,6 +823,7 @@ class AdhithiyaAssistant:
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._proactive        = ProactiveEngine()
         self._last_user_speech = time.monotonic()  # updated on every user utterance
+        self._recent_request_guard = RecentRequestGuard(window_seconds=2.5)
         self._session_log: list[str] = []          # conversation turns for end-of-session summary
         # Optional fail-closed local gate.  It performs no model loading until
         # the first protected audio frame and is disabled by default so the
@@ -875,9 +890,10 @@ class AdhithiyaAssistant:
 
     def _maybe_learn(self, name: str, args: dict, error: object) -> None:
         """
-        Self-learning: when a tool fails, research the fix online in the
-        background and remember it. On success the guidance is injected into the
-        Live session so ADHITHIYA can immediately explain and offer to retry.
+        Self-learning: on a technical tool failure, search for relevant sources
+        in the background. Report guidance only after it has been evidence-checked
+        and successfully saved; future prompts receive it as tentative source-backed
+        data. Never retry the failed action automatically.
 
         Guarded by a per-session dedup set + cooldown so a retry loop can never
         turn into a search storm. Fire-and-forget — never blocks the turn.
@@ -906,11 +922,12 @@ class AdhithiyaAssistant:
                     print(f"[Learn] background research error: {exc}")
                     return
                 if not guidance:
-                    self.ui.write_log(f"LEARN: nothing usable found for '{name}'.")
+                    self.ui.write_log(f"LEARN: no verified fix was found or saved for '{name}'.")
                     return
-                self.ui.write_log(f"LEARN: fix remembered for '{name}'.")
+                self.ui.write_log(f"LEARN: evidence-backed guidance saved for '{name}'.")
                 self.speak(
-                    f"I worked out how to do '{name}' correctly and I'll remember it."
+                    f"I found relevant search evidence for '{name}' and saved the guidance. "
+                    "I have not retried the action."
                 )
 
             asyncio.run_coroutine_threadsafe(_do(), loop)
@@ -1364,11 +1381,9 @@ class AdhithiyaAssistant:
             record_tool_outcome(name, False)
             self._maybe_learn(name, args, e)
         else:
-            ok = not str(result).lower().startswith(
-                ("could not", "error", "failed", "unknown", "please confirm")
-            )
+            ok = not is_tool_failure(result)
             record_tool_outcome(name, ok)
-            if not ok:
+            if not ok and is_learnable_failure(result):
                 self._maybe_learn(name, args, result)
 
         if not self.ui.muted:
@@ -1569,6 +1584,13 @@ class AdhithiyaAssistant:
         if not user_text:
             return ""
 
+        if log_as_user and self._recent_request_guard.is_duplicate(user_text):
+            self.ui.write_log(
+                f"SYS: Suppressed a duplicate request received within "
+                f"{self._recent_request_guard.window_seconds:.1f}s."
+            )
+            return ""
+
         if log_as_user:
             self._last_user_speech = time.monotonic()
             self.ui.write_log(f"You: {user_text}")
@@ -1584,6 +1606,7 @@ class AdhithiyaAssistant:
         self._chat_history.append({"role": "user", "content": user_text})
         messages = [{"role": "system", "content": system_prompt}] + list(self._chat_history[-10:])
         tools = self._openai_tools()
+        executed_tools = ToolCallDeduplicator()
 
         for _ in range(8):
             resp = await asyncio.to_thread(chat, messages, tools)
@@ -1605,11 +1628,20 @@ class AdhithiyaAssistant:
             for tc in tool_calls:
                 name = tc.get("name", "")
                 args = dict(tc.get("arguments") or {})
-                shim = type("FC", (), {"id": tc.get("id", "call"), "name": name, "args": args})()
-                fr = await self._execute_tool(shim)
-                result_text = str((fr.response or {}).get("result", "Done."))
+                previous = executed_tools.previous_result(name, args)
+                if previous is not None:
+                    result_text = (
+                        "Duplicate suppressed: this exact tool action already ran once "
+                        f"in the current request. Previous result: {previous}"
+                    )
+                    print(f"[ADHITHIYA] 🔁 Suppressed duplicate tool call: {name} {args}")
+                else:
+                    shim = type("FC", (), {"id": tc.get("id", "call"), "name": name, "args": args})()
+                    fr = await self._execute_tool(shim)
+                    result_text = str((fr.response or {}).get("result", "Done."))
+                    executed_tools.remember(name, args, result_text)
+                    print(f"[ADHITHIYA] 📞 {name} {args}")
                 tool_results.append((name, args, result_text))
-                print(f"[ADHITHIYA] 📞 {name} {args}")
 
             messages.append({
                 "role": "assistant", "content": None,
@@ -1708,10 +1740,12 @@ class AdhithiyaAssistant:
                 break
         self._turn_done_event.clear()
         for i in range(0, len(pcm), 2400):
-            try:
-                self.audio_in_queue.put_nowait(pcm[i:i + 2400])
-            except asyncio.QueueFull:
+            if self._interrupted:
                 break
+            # The player drains this bounded queue on the same event loop.
+            # Await backpressure instead of dropping the rest of a long reply
+            # when its audio is longer than the queue's few-second capacity.
+            await self.audio_in_queue.put(pcm[i:i + 2400])
         if self._dashboard and self._dashboard.has_clients():
             asyncio.create_task(self._dashboard.broadcast_audio(pcm))
         self._turn_done_event.set()
@@ -1861,9 +1895,12 @@ class AdhithiyaAssistant:
                     self.ui.write_log(f"SYS: News fetch timed out/failed: {e!r}")
                     news_text = ""
 
-                failed = (not news_text) or news_text.startswith(
-                    ("No news found", "Search failed", "Please provide")
-                )
+                failed = (not news_text) or news_text.startswith((
+                    "No news found", "Search failed", "Please provide",
+                    "Live news search returned no source-linked articles",
+                    "Live web search returned no source-linked results",
+                    "Live web search failed",
+                ))
                 if not failed:
                     self.ui.show_content("NEWS — top world news today", news_text)
                     p2 = (

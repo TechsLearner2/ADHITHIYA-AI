@@ -13,11 +13,16 @@ Two plugin homes are scanned:
   self-authoring (the plugin_builder tool) installs new abilities the user has
   approved. User plugins load under the ``adhithiya_plugins`` module prefix so
   they never shadow bundled plugins or each other's relative imports.
+
+Plugins may declare ``platforms`` in their PLUGIN metadata (Windows, Darwin,
+Linux). Incompatible plugins remain visible in the manager with a reason, but
+are not offered to the model.
 """
 from __future__ import annotations
 
 import importlib.util
 import inspect
+import platform
 import re
 import sys
 import traceback
@@ -26,6 +31,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from memory.config_manager import get_plugin_enabled
+from core.plugin_dependencies import diagnose_missing_software
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -45,6 +51,7 @@ class PluginRecord:
     file: str = ""
     valid: bool = False
     error: str = ""
+    platforms: tuple[str, ...] = ()
 
 
 class PluginRegistry:
@@ -58,7 +65,11 @@ class PluginRegistry:
     # -- called by main.py at LiveConnectConfig build time --
     def get_tool_declarations(self) -> list[dict]:
         decls = []
-        for name, rec in self._plugins.items():
+        current_os = platform.system()
+        for name in sorted(self._plugins):
+            rec = self._plugins[name]
+            if rec.platforms and current_os not in rec.platforms:
+                continue
             if get_plugin_enabled(name):
                 decls.append({
                     "name": rec.name,
@@ -75,14 +86,29 @@ class PluginRegistry:
         rec = self._plugins.get(name)
         if rec is None or not rec.valid:
             return f"Plugin '{name}' is not available."
+        current_os = platform.system()
+        if rec.platforms and current_os not in rec.platforms:
+            supported = ", ".join(rec.platforms)
+            return f"Plugin '{name}' supports {supported}, not the current OS ({current_os})."
         if not get_plugin_enabled(name):
             return f"The '{name}' plugin is currently disabled."
         try:
-            return _call_run(rec.run, parameters, player, session_memory) or "Done."
+            result = _call_run(rec.run, parameters, player, session_memory) or "Done."
+            if isinstance(result, str):
+                try:
+                    diagnosis = diagnose_missing_software(name, result)
+                except Exception:
+                    diagnosis = ""
+                return diagnosis or result
+            return result
         except Exception as e:
             self._logger(f"Plugin '{name}' crashed during run(): {e}")
             traceback.print_exc()
-            return f"Sir, the '{name}' plugin failed: {e}"
+            try:
+                diagnosis = diagnose_missing_software(name, str(e), error=e)
+            except Exception:
+                diagnosis = ""
+            return diagnosis or f"Sir, the '{name}' plugin failed: {e}"
 
     # -- called by ui.py's Plugin Manager overlay --
     def list_for_ui(self) -> list[dict]:
@@ -94,6 +120,7 @@ class PluginRegistry:
                 "file": rec.file,
                 "valid": rec.valid,
                 "error": rec.error,
+                "platforms": list(rec.platforms),
                 "enabled": get_plugin_enabled(rec.name) if rec.valid else False,
             })
         return out
@@ -106,6 +133,10 @@ class PluginRegistry:
         """
         if not rec.valid:
             return rec.error or "The new plugin failed validation."
+        current_os = platform.system()
+        if rec.platforms and current_os not in rec.platforms:
+            supported = ", ".join(rec.platforms)
+            return f"Plugin '{rec.name}' targets {supported}, not the current OS ({current_os})."
         if rec.name in self._core_tool_names:
             return f"Name '{rec.name}' collides with a built-in tool — choose another name."
         if rec.name in self._plugins:
@@ -126,16 +157,60 @@ class PluginRegistry:
 
 
 def _call_run(run_fn, parameters, player, session_memory):
-    """Invoke run() passing only the kwargs it actually declares (or all of them
-    if it has **kwargs), so a minimal `def run(parameters):` plugin still works."""
+    """Call both the dictionary-based plugin contract and older named-arg tools.
+
+    Current plugins use ``run(parameters, player=None, session_memory=None)``.
+    A few bundled legacy plugins instead declare ``run(action)`` or
+    ``run(target)``; pass those schema fields by name rather than handing them
+    the entire dict as a positional value.
+    """
     sig = inspect.signature(run_fn)
-    has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+    params = parameters if isinstance(parameters, dict) else {}
+    declared = sig.parameters
+    has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in declared.values())
+    positional = [
+        p for p in declared.values()
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY,
+                      inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    context_names = {"player", "session_memory"}
+
+    if positional and positional[0].name.casefold() in {"parameters", "params", "args", "payload"}:
+        first = positional[0]
+        call_args = [params] if first.kind == inspect.Parameter.POSITIONAL_ONLY else []
+        kwargs = {} if first.kind == inspect.Parameter.POSITIONAL_ONLY else {first.name: params}
+        for key, value in (("player", player), ("session_memory", session_memory)):
+            if key in declared and declared[key].kind != inspect.Parameter.POSITIONAL_ONLY:
+                kwargs[key] = value
+        if has_var_kw:
+            kwargs.setdefault("player", player)
+            kwargs.setdefault("session_memory", session_memory)
+        return run_fn(*call_args, **kwargs)
+
     kwargs = {}
-    if has_var_kw or "player" in sig.parameters:
-        kwargs["player"] = player
-    if has_var_kw or "session_memory" in sig.parameters:
-        kwargs["session_memory"] = session_memory
-    return run_fn(parameters, **kwargs)
+    call_args = []
+    for key, value in params.items():
+        if key in declared and key not in context_names:
+            if declared[key].kind == inspect.Parameter.POSITIONAL_ONLY:
+                continue
+            kwargs[key] = value
+        elif has_var_kw and key not in context_names:
+            kwargs[key] = value
+
+    for param in positional:
+        if param.kind != inspect.Parameter.POSITIONAL_ONLY:
+            continue
+        if param.name in params:
+            call_args.append(params[param.name])
+        elif param.default is inspect.Parameter.empty:
+            raise TypeError(f"Missing required plugin argument: {param.name}")
+
+    for key, value in (("player", player), ("session_memory", session_memory)):
+        param = declared.get(key)
+        if has_var_kw or (param is not None and param.kind != inspect.Parameter.POSITIONAL_ONLY):
+            kwargs[key] = value
+
+    return run_fn(*call_args, **kwargs)
 
 
 def _validate(module, filename: str) -> PluginRecord:
@@ -156,6 +231,27 @@ def _validate(module, filename: str) -> PluginRecord:
         return PluginRecord(name=name, file=filename,
                              error="PLUGIN['description'] missing or empty.")
 
+    raw_platforms = plugin_meta.get("platforms")
+    if raw_platforms is None:
+        platforms: tuple[str, ...] = ()
+    elif (isinstance(raw_platforms, (list, tuple)) and raw_platforms
+          and all(isinstance(item, str) and item in {"Windows", "Darwin", "Linux"}
+                  for item in raw_platforms)):
+        platforms = tuple(dict.fromkeys(raw_platforms))
+    else:
+        return PluginRecord(name=name, file=filename,
+                             error="PLUGIN['platforms'] must list supported OS names: Windows, Darwin, Linux.")
+
+    if platforms and platform.system() not in platforms:
+        supported = ", ".join(platforms)
+        return PluginRecord(
+            name=name,
+            description=description.strip(),
+            file=filename,
+            error=f"Unsupported on {platform.system()}; this plugin supports: {supported}.",
+            platforms=platforms,
+        )
+
     parameters = plugin_meta.get("parameters", _DEFAULT_PARAMS)
     if not isinstance(parameters, dict) or parameters.get("type") != "OBJECT":
         return PluginRecord(name=name, file=filename,
@@ -167,7 +263,8 @@ def _validate(module, filename: str) -> PluginRecord:
                              error="Missing callable run(parameters, ...) function.")
 
     return PluginRecord(name=name, description=description.strip(), parameters=parameters,
-                         run=run_fn, file=filename, valid=True, error="")
+                         run=run_fn, file=filename, valid=True, error="",
+                         platforms=platforms)
 
 
 def load_plugin_file(path: Path, module_prefix: str = USER_PLUGINS_PREFIX) -> PluginRecord:

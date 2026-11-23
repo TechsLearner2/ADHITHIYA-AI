@@ -400,7 +400,8 @@ def _open_native(url: str, browser_name: Optional[str]) -> str:
                 cmd = ["open", "-a", app] + ([url] if url else [])
                 try:
                     subprocess.run(cmd, check=True, timeout=10)
-                    return f"Opened in {name}: {url}" if url else f"Opened {name}."
+                    return (f"The OS accepted the request to open {url} in {name}; "
+                            "window visibility was not independently verified.") if url else f"The OS accepted the launch request for {name}."
                 except Exception as e:
                     print(f"[Browser] 'open -a {app}' failed ({e}), trying binary…")
 
@@ -413,14 +414,19 @@ def _open_native(url: str, browser_name: Optional[str]) -> str:
                 exe = _find_exe_windows(_WIN_EXE_HINTS.get(name, name))
         if exe:
             try:
-                subprocess.Popen(
+                process = subprocess.Popen(
                     [exe, url] if url else [exe],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
-                return f"Opened in {name}: {url}" if url else f"Opened {name}."
+                return (f"The OS accepted the request to open {url} in {name}; "
+                        "window visibility was not independently verified.") if url else f"The OS accepted the launch request for {name}."
             except Exception as e:
                 print(f"[Browser] Native launch failed for {name}: {e}")
-        print(f"[Browser] '{name}' not found — falling back to default browser.")
+        print(f"[Browser] '{name}' not found or could not be started.")
+        if browser_name:
+            return f"Could not open in the requested browser '{browser_name}'; no browser was launched."
 
     if not url:
         return "Could not find a browser to open."
@@ -433,14 +439,16 @@ def _open_native(url: str, browser_name: Optional[str]) -> str:
             subprocess.run(["open", url], check=True, timeout=10)
         else:
             subprocess.Popen(
-                ["xdg-open", url],
+                ["xdg-open", url], stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
-        return f"Opened in your default browser: {url}"
+        return (f"The OS accepted the request to open {url} in your default browser; "
+                "window visibility was not independently verified.")
     except Exception:
         try:
             if webbrowser.open(url):
-                return f"Opened in your default browser: {url}"
+                return (f"The OS accepted the request to open {url} in your default browser; "
+                        "window visibility was not independently verified.")
         except Exception:
             pass
         return f"Could not open a browser for: {url}"
@@ -1001,7 +1009,7 @@ def browser_control(
             nav_url = params.get("url", "").strip()
 
         result = _open_native(nav_url, browser)
-        if result.startswith("Opened") and nav_url:
+        if result.startswith(("Opened", "The OS accepted")) and nav_url:
             _registry.note_native_url(_normalize_url(nav_url))
         _log(player, result)
         return result

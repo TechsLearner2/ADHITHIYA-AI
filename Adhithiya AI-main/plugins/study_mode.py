@@ -31,7 +31,8 @@ PLUGIN = {
     "description": (
         "Student study mode for ADHITHIYA. Use it to work with NotebookLM, "
         "generate and review locally stored flashcards, start a quiz from supplied "
-        "text or NotebookLM output, track deadlines with macOS Reminders/Calendar, "
+        "text or NotebookLM output, track deadlines with macOS Reminders/Calendar or "
+        "classic Outlook on Windows, "
         "and start/stop/check a Pomodoro focus session. NotebookLM asking, external "
         "calendar/reminder changes, and persistent flashcard changes require "
         "confirmed=true. Never request passwords."

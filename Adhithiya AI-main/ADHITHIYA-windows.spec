@@ -25,6 +25,7 @@ hiddenimports = [
     "PIL.Image",
     "PIL.ImageDraw",
     "PIL.ImageFilter",
+    "PIL.ImageGrab",
     "qrcode",
     # Windows-only integrations are imported inside feature functions.
     "win32com.client",
@@ -59,6 +60,7 @@ for package in (
     "av",
     "tokenizers",
     "huggingface_hub",
+    "ddgs",  # live search used by web_search and plugin_builder
 ):
     try:
         package_datas, package_binaries, package_hiddenimports = collect_all(package)
