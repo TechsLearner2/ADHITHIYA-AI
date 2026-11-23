@@ -40,6 +40,7 @@ for _pkg in (
     "qrcode",
     "httpx",
     "websockets",
+    "ddgs",           # live search used by web_search and plugin_builder
 ):
     try:
         _d, _b, _h = collect_all(_pkg)

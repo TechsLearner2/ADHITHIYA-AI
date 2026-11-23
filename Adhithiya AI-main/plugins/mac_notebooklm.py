@@ -2,7 +2,7 @@
 
 from actions.browser_control import browser_control
 
-from ._macos import confirmed, finish, supported, unsupported
+from ._macos import confirmed, finish
 
 
 PLUGIN = {
@@ -42,8 +42,6 @@ def _call(params: dict, action: str, **extra) -> str:
 
 
 def run(parameters: dict, player=None, session_memory=None) -> str:
-    if not supported():
-        return finish(player, unsupported("mac_notebooklm"))
     params = parameters if isinstance(parameters, dict) else {}
     action = str(params.get("action", "open")).strip().lower().replace("-", "_")
 

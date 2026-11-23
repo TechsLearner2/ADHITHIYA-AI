@@ -1,5 +1,6 @@
-"""macOS Notes integration through AppleScript."""
+"""Notes integration through macOS Notes or classic Outlook Notes on Windows."""
 
+from . import _windows as windows
 from ._macos import (
     MacOSPluginError,
     confirmed,
@@ -9,14 +10,15 @@ from ._macos import (
     run_osascript,
     supported,
     text_value,
-    unsupported,
 )
 
 PLUGIN = {
+    "platforms": ["Darwin", "Windows"],
     "name": "mac_notes",
     "description": (
-        "Create or search notes in macOS Notes. Use action 'create' or 'search'; "
-        "creating requires confirmed=true."
+        "Create or search notes in macOS Notes or the Notes folder in classic "
+        "Outlook on Windows. Creating requires confirmed=true; Windows requires "
+        "classic Outlook and pywin32."
     ),
     "parameters": {
         "type": "OBJECT",
@@ -32,11 +34,62 @@ PLUGIN = {
 }
 
 
+def _run_outlook(parameters: dict, action: str) -> str:
+    if action in {"create", "add"}:
+        title = text_value(parameters, "title")
+        if not title:
+            return "Please provide a note title."
+        if not confirmed(parameters):
+            return "Please confirm before creating that note."
+        body = text_value(parameters, "body")
+        note_body = title + ("\r\n" + body if body else "")
+    elif action == "search":
+        query = text_value(parameters, "query")
+        if not query:
+            return "Please provide text to search for."
+    else:
+        return "Use notes action search or create."
+
+    _, namespace = windows.outlook_namespace()
+    folder = windows.outlook_folder(namespace, 10, "")
+    if action in {"create", "add"}:
+        try:
+            note = folder.Items.Add()
+            note.Body = note_body
+            note.Save()
+        except Exception as exc:
+            raise windows.WindowsPluginError(f"Outlook could not save the note: {exc}") from exc
+        return f"Created Outlook note: {title}."
+
+    try:
+        items = folder.Items
+        matches = []
+        count = min(int(items.Count), 5000)
+        needle = query.casefold()
+        for index in range(1, count + 1):
+            note = items.Item(index)
+            content = str(getattr(note, "Body", "") or "")
+            if needle not in content.casefold():
+                continue
+            title = next((line.strip() for line in content.splitlines() if line.strip()), "(Untitled note)")
+            matches.append(title)
+            if len(matches) == 10:
+                break
+        return "\n".join(matches) if matches else "No matching notes."
+    except Exception as exc:
+        raise windows.WindowsPluginError(f"Outlook could not search notes: {exc}") from exc
+
+
 def run(parameters: dict, player=None, session_memory=None) -> str:
-    if not supported():
-        return finish(player, unsupported("mac_notes"))
     parameters = parameters if isinstance(parameters, dict) else {}
     action = text_value(parameters, "action", "search").lower()
+    if windows.is_windows():
+        try:
+            return finish(player, _run_outlook(parameters, action))
+        except windows.WindowsPluginError as exc:
+            return finish(player, f"mac_notes failed: {exc}")
+    if not supported():
+        return finish(player, "mac_notes is supported on macOS and Windows only.")
     try:
         if action in {"create", "add"}:
             title = text_value(parameters, "title")
