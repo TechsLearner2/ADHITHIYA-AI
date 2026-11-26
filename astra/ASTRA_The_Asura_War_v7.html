@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='52' font-size='52'>🏹</text></svg>">
 <meta name="theme-color" content="#100b18">
-<title>ASTRA: The Asura War v7.4 — Realism Edition</title>
+<title>ASTRA: The Asura War v7.5 — 3D Tilt Edition</title>
 <style>
 :root{--gold:#ffd27b;--cyan:#82eaff;--violet:#c3a0ff;--red:#ff7182;--bg:#100b18;--pad:clamp(112px,31vw,150px)}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:system-ui,Segoe UI,Arial,sans-serif;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
@@ -371,7 +371,7 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
 <div id="story"><div id="sArt"></div><button id="sSkip" class="weapon">SKIP ▸▸</button><div id="sCard"></div><div id="sBox"><div id="sT"></div><div id="sL"></div><div id="sHint">tap to continue</div></div></div>
 <div class="overlay" id="pauseOv" style="display:none"><div class="panel" style="text-align:center"><h2>PAUSED</h2><p><button class="weapon" id="autoBtn"></button> <button class="weapon" id="hapBtn"></button></p><p><button class="weapon" id="musBtn"></button> <button class="weapon" id="mantBtn"></button></p><p>MUSIC VOLUME<br><input id="volR" type="range" min="0" max="100" value="100" style="width:70%"></p><p><button class="weapon" id="lefBtn"></button> <button class="weapon" id="perfBtn"></button> <button class="weapon" id="fsBtn">FULLSCREEN</button></p>
 <p><button class="weapon" id="howPause">HOW TO PLAY</button> <button class="weapon" id="resumeBtn">RESUME</button></p><small>P / Esc also pauses</small></div></div>
-<div id="howto" class="overlay"><div class="panel" id="howPanel"><div class="kicker">ASTRA · THE ASURA WAR · v7.4</div><h2>HOW TO PLAY</h2><div class="htabs" id="howTabs"></div><div id="howBody"></div><div class="hfoot"><button id="howTour">▶ GUIDED TOUR</button><button id="howClose" class="weapon" style="padding:12px 18px;font-size:11px">CLOSE</button></div></div></div>
+<div id="howto" class="overlay"><div class="panel" id="howPanel"><div class="kicker">ASTRA · THE ASURA WAR · v7.5</div><h2>HOW TO PLAY</h2><div class="htabs" id="howTabs"></div><div id="howBody"></div><div class="hfoot"><button id="howTour">▶ GUIDED TOUR</button><button id="howClose" class="weapon" style="padding:12px 18px;font-size:11px">CLOSE</button></div></div></div>
 <div id="coach"><div id="cSpot"></div><div id="cTip"><h3 id="cT"></h3><p id="cX"></p><div class="cb"><button id="cBack" class="weapon">◂ BACK</button><small id="cN"></small><button id="cNext">NEXT ▸</button></div><div style="text-align:center;margin-top:8px"><button id="cSkip" class="weapon" style="font-size:9px;padding:5px 10px">SKIP TOUR</button></div></div></div>
 <div id="mantra"><div class="mdl"></div><div class="mdl b"></div><div class="mw"><div class="mk" id="mGod"></div><div class="md" id="mDev"></div><div class="mr" id="mRom"></div><div class="mm" id="mMean"></div><div class="mbar"><i id="mFill"></i></div><div class="ms" id="mSkip">TAP TO CONTINUE</div></div></div>
 <div id="mobile" style="display:none"><button id="pauseBtn" class="weapon">II</button><div class="pad" id="leftPad"><div class="knob"></div></div><div class="pad" id="rightPad"><div class="knob"></div></div><button id="dashBtn">DASH</button><button id="divineBtn">DIVINE AID</button></div>
@@ -542,7 +542,15 @@ function renderFullMantra(godProfile,mantraKey){
 }
 
 /* ===== 2.5D PERSPECTIVE ENGINE ===== */
-const ZOOM=1.85;                       // camera zoom: figures were ~24px tall at 1:1 - this is the realism lever
+const ZOOM=1.30;                       // camera zoom
+const TILT=.64;                        // camera pitch: ground plane recedes by this factor (1 = flat top-down)
+const INV=1/TILT;
+let FUH=INV;                            // figure-upright factor; tutorial mini-canvases are untilted so they set this to 1                      // counter-scale for anything with HEIGHT, so bodies stay upright
+/* Tilted orthographic ("3D") projection.
+   Ground (x,y) is squashed by TILT so plots become ellipses and the town recedes into depth.
+   Anything with real height is drawn through up(), which undoes the squash about the entity's
+   ground contact point, so figures and buildings stand upright and unsquashed. */
+function up(x,y,fn){c.save();c.translate(x,y);c.scale(1,INV);c.translate(-x,-y);try{fn()}finally{c.restore()}}
 const PERSP=.00042;// 2.5D depth: raised from .00018 - far rows now visibly smaller
 function zScale(wy){return Math.max(.72,Math.min(1.3,1+((wy-map.h/2)*PERSP)))}// depth scale, clamped so nothing explodes
 function zShad(x,y,r){return r*(1+(y-map.h/2)*PERSP*.5);};// shadow radius with depth
@@ -729,9 +737,10 @@ function drawLayout(V){const T=map.temple,strk=(p,w,col)=>{c.strokeStyle=col;c.l
  for(const r of LAY.roads){strk(r.p,r.w+10,'#00000040');strk(r.p,r.w,V.r)}
  c.strokeStyle='#78644c55';c.lineWidth=2;c.setLineDash([18,20]);for(const r of LAY.roads){c.beginPath();c.moveTo(r.p[0][0],r.p[0][1]);c.lineTo(r.p[1][0],r.p[1][1]);c.stroke()}c.setLineDash([]);
  for(const r of LAY.roads){const p=r.p[0],q=r.p[1],L=Math.hypot(q[0]-p[0],q[1]-p[1])||1,nx=-(q[1]-p[1])/L,ny=(q[0]-p[0])/L;for(let d=100;d<L;d+=240){const x=p[0]+(q[0]-p[0])*d/L+nx*(r.w/2+8),y=p[1]+(q[1]-p[1])*d/L+ny*(r.w/2+8);if(x<0||y<0||x>map.w||y>map.h)continue;c.fillStyle=V.l;c.globalAlpha=.6;c.beginPath();c.arc(x,y,3,0,TAU);c.fill();c.globalAlpha=1}}
- /* --- trees: canopy + trunk + sun offset, so they stop reading as flat dots --- */
+ /* --- trees: trunk + canopy rising upright out of the tilted ground --- */
  for(const t of LAY.trees){
-   const r=t.r, lift=r*.55;                                   // how far the canopy sits above the ground point
+   const r=t.r, lift=r*.62;                                   // how far the canopy sits above the ground point
+   c.save();c.translate(t.x,t.y);c.scale(1,INV);              // upright: trunk height is real height
    c.fillStyle='rgba(4,3,10,.30)';c.beginPath();c.ellipse(t.x+4,t.y+3,r*.95,r*.42,0,0,TAU);c.fill();   // ground shadow
    c.fillStyle=_shade(V.t,.45);c.fillRect(t.x-1.6,t.y-lift,r*0.30,lift+2);                              // trunk
    const cg=c.createRadialGradient(t.x-r*.34,t.y-lift-r*.34,r*.15,t.x,t.y-lift,r*1.06);
@@ -739,6 +748,7 @@ function drawLayout(V){const T=map.temple,strk=(p,w,col)=>{c.strokeStyle=col;c.l
    c.fillStyle=cg;c.beginPath();c.arc(t.x,t.y-lift,r,0,TAU);c.fill();
    c.globalAlpha=.5;c.fillStyle=_tint(V.t,.55);c.beginPath();c.arc(t.x-r*.30,t.y-lift-r*.30,r*.34,0,TAU);c.fill();c.globalAlpha=1;
    c.strokeStyle=_shade(V.t,.62);c.lineWidth=.8;c.beginPath();c.arc(t.x,t.y-lift,r*.99,Math.PI*.15,Math.PI*.85);c.stroke();
+   c.restore();
  }}
 function reset(){runBosses=0;runSlain=[];rushCd=0;combo=0;comboT=0;try{mode=localStorage.getItem('astraMode')||mode}catch(e){}applyMode();astras.forEach((a,i)=>{a.damage=BASE[i].d;a.rate=BASE[i].r});gods.forEach((g,i)=>g.duration=GD[i]);BN={};lastOffer=[];
  makeCity();hero={x:map.temple.x,y:map.temple.y+70,r:15,hp:140,maxHp:140,speed:305,angle:-Math.PI/2,fire:0,dashCd:0,power:1,rate:1,range:650,level:1,shield:0,healAura:0};
@@ -998,7 +1008,7 @@ function update(dt){
 }
 function updateHud(){$('wave').textContent=mode==='rush'?('D'+(runBosses+1)):String(wave).padStart(2,'0');$('time').textContent=clock(elapsed);$('kills').textContent=kills;$('hpText').textContent=Math.ceil(hero.hp)+' / '+hero.maxHp;$('hpFill').style.width=hero.hp/hero.maxHp*100+'%';$('divFill').style.width=divineCharge+'%';$('divText').textContent=divine?divine.name+' '+Math.ceil(divine.time)+'s':divineCooldown>0?'COOLDOWN '+Math.ceil(divineCooldown)+'s':divineCharge>=100?'READY':Math.floor(divineCharge)+'%';$('xpText').textContent=Math.floor(xp)+' / '+xpNeed;$('xpFill').style.width=xp/xpNeed*100+'%';if(boss)$('bossFill').style.width=boss.hp/boss.max*100+'%';$('astraName')&&($('astraName').textContent=astras[astraIndex].short);$('objective').textContent='['+diffMode.toUpperCase()+'] TEMPLE '+Math.ceil(tHp/tMax*100)+'% · RISHIS '+saints.length+' · SAVED '+saved+' · PERIL '+civilians.filter(n=>!n.rescued).length+' · LOST '+lost}
 function clock(t){return String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0')}
-function worldAt(x,y){return{x:(x-W/2)/ZOOM+camera.x,y:(y-H/2)/ZOOM+camera.y}}
+function worldAt(x,y){return{x:(x-W/2)/ZOOM+camera.x,y:(y-H/2)/(ZOOM*TILT)+camera.y}}
 
 /* ---- colour helpers for painted shading ---- */
 const _hex=h=>{const n=parseInt(h.slice(1),16);return[(n>>16)&255,(n>>8)&255,n&255]};
@@ -1021,10 +1031,10 @@ function drawHuman(x,y,aim,scale,body,trim,style='hero',time=0,sq=0){
  const bob=ab*1.7*mv;                                  // vertical bounce while walking
  const sc=scale*(1+sq*.10), legSwing=s1*mv;
  c.save();c.translate(x,y);
- /* --- cast shadow: soft, thrown away from the light (upper-left sun) --- */
+ /* --- cast shadow: stays flat on the ground plane --- */
  c.save();c.fillStyle='rgba(4,3,10,.34)';c.beginPath();c.ellipse(3*face,1.5,13*sc,4.4*sc,.18,0,TAU);c.fill();
  c.fillStyle='rgba(4,3,10,.18)';c.beginPath();c.ellipse(3*face,1.5,18*sc,6.5*sc,.18,0,TAU);c.fill();c.restore();
- c.scale(face*sc,sc*(1+breath));c.translate(0,-bob);
+ c.scale(face*sc,sc*(1+breath)*FUH);                 // uniform figure, tilt divided out (stands upright)c.translate(0,-bob);
  c.lineCap='round';c.lineJoin='round';
  const skinL='#e8bb8a', skinD='#b98a5c', skin='#d7a76f';
  const dark=_shade(body,.55), mid=_shade(body,.78);
@@ -1092,7 +1102,7 @@ function kit(x,y,ang,sc,type,t){c.save();c.translate(x,y);c.rotate(ang);c.scale(
  c.restore()}
 function heroKit(x,y,t){c.save();c.translate(x,y);c.rotate(t*.4);c.globalAlpha=.45;c.strokeStyle='#ffd35a';c.lineWidth=1.6;for(let i=0;i<10;i++){const q=i*TAU/10,r=i%2?36:42;c.beginPath();c.moveTo(Math.cos(q)*28,Math.sin(q)*28);c.lineTo(Math.cos(q)*r,Math.sin(q)*r);c.stroke()}c.globalAlpha=.10;c.fillStyle='#ffd35a';c.beginPath();c.arc(0,0,30,0,TAU);c.fill();c.restore()}
 /* ===== painted deity sprites (shaded anatomy, traditional iconography) ===== */
-let _sw=0,_l1=0,_l2=0,_atk=0,_ph=0,_mvv=0;const GC=new Map(),_g=(x,y,r,a,b)=>{const k='r'+x+','+y+','+r+a+b;let g=GC.get(k);if(!g){g=c.createRadialGradient(x-r*.3,y-r*.3,r*.1,x,y,r);g.addColorStop(0,a);g.addColorStop(1,b);GC.set(k,g)}return g},_v=(y1,y2,a,b)=>{const k='v'+y1+','+y2+a+b;let g=GC.get(k);if(!g){g=c.createLinearGradient(0,y1,0,y2);g.addColorStop(0,a);g.addColorStop(1,b);GC.set(k,g)}return g},offV=(o,m=100)=>Math.abs(o.x-camera.x)>W/(2*ZOOM)+m||Math.abs(o.y-camera.y)>H/(2*ZOOM)+m,_lm=(a,b,d,e,w,hi,lo)=>{_l(a,b,d,e,lo,w+1.6);_l(a,b,d,e,hi,w)},_arc=(x,y,r,a0,a1,col,w)=>{c.strokeStyle=col;c.lineWidth=w;c.beginPath();c.arc(x,y,r,a0,a1);c.stroke()};
+let _sw=0,_l1=0,_l2=0,_atk=0,_ph=0,_mvv=0;const GC=new Map(),_g=(x,y,r,a,b)=>{const k='r'+x+','+y+','+r+a+b;let g=GC.get(k);if(!g){g=c.createRadialGradient(x-r*.3,y-r*.3,r*.1,x,y,r);g.addColorStop(0,a);g.addColorStop(1,b);GC.set(k,g)}return g},_v=(y1,y2,a,b)=>{const k='v'+y1+','+y2+a+b;let g=GC.get(k);if(!g){g=c.createLinearGradient(0,y1,0,y2);g.addColorStop(0,a);g.addColorStop(1,b);GC.set(k,g)}return g},offV=(o,m=100)=>Math.abs(o.x-camera.x)>W/(2*ZOOM)+m||Math.abs(o.y-camera.y)>H/(2*ZOOM*TILT)+m,_lm=(a,b,d,e,w,hi,lo)=>{_l(a,b,d,e,lo,w+1.6);_l(a,b,d,e,hi,w)},_arc=(x,y,r,a0,a1,col,w)=>{c.strokeStyle=col;c.lineWidth=w;c.beginPath();c.arc(x,y,r,a0,a1);c.stroke()};
 function stand(hi,lo){_lm(-4,-40,-5+_sw,-4-_l1,6,hi,lo);_lm(4,-40,5-_sw,-4-_l2,6,hi,lo);_e(-5+_sw,-1-_l1,5.5,2.4,lo);_e(5-_sw,-1-_l2,5.5,2.4,lo);
  c.fillStyle=_g(0,-52,15,hi,lo);c.beginPath();c.moveTo(-12,-62);c.quadraticCurveTo(-13.5,-52,-7.5,-42);c.lineTo(7.5,-42);c.quadraticCurveTo(13.5,-52,12,-62);c.quadraticCurveTo(0,-66,-12,-62);c.fill();
  _lm(0,-67,0,-62,5.5,hi,lo);_e(-5.6,-72,1.3,2.3,lo);_e(5.6,-72,1.3,2.3,lo);_e(0,-72,5.7,6.7,_g(0,-72,8,hi,lo))}
@@ -1104,7 +1114,7 @@ function wp(k,x,y,a,t){c.save();c.translate(x,y);c.rotate(a);if(k===0){_l(0,6,0,
  else if(k===6){_arc(0,-6,12,-1.1,1.1,'#8a5a2a',2);_l(5.4,-11.8,5.4,-.2,'#eee',.7)}else{_e(0,-6,6,7,_g(0,-6,8,'#d9b44a','#7a5a22'))}c.restore()}
 function drawDeity(al){const e=al.effect,t=elapsed,A0=c.globalAlpha,mv=al.mv||0,ph=al.step||0,fc=Math.cos(al.a||0)<-.15?-1:1,at=al.atk||0,cv=Math.sin(at*Math.PI);_sw=Math.sin(ph)*8*mv;_l1=Math.max(0,Math.cos(ph))*4*mv;_l2=Math.max(0,-Math.cos(ph))*4*mv;_atk=at;_ph=ph;_mvv=mv;
  if(mv>.15)for(let i=1;i<=4;i++){c.globalAlpha=A0*.22/i;c.fillStyle=al.color;c.beginPath();c.arc(al.x-(al.vx||0)*.05*i,al.y+10-(al.vy||0)*.05*i,26-i*4,0,TAU);c.fill()}c.globalAlpha=A0;
- c.save();c.translate(al.x+fc*cv*12,al.y+46+Math.sin(t*3)*2.5*(1-mv)-Math.abs(Math.sin(ph))*4*mv);c.rotate(fc*(.1*mv+.12*cv)+Math.sin(t*2)*.015);c.scale(1.3*fc,1.3);c.lineCap='round';
+ c.save();c.translate(al.x+fc*cv*12,al.y+46+Math.sin(t*3)*2.5*(1-mv)-Math.abs(Math.sin(ph))*4*mv);c.scale(1.3*fc,1.3*FUH);c.rotate(fc*(.1*mv+.12*cv)+Math.sin(t*2)*.015);c.lineCap='round';
  c.save();c.translate(0,-62);c.rotate(t*.5);c.globalAlpha=A0*.5;for(let i=0;i<24;i++){const q=i*TAU/24;_l(Math.cos(q)*38,Math.sin(q)*38,Math.cos(q)*(i%2?46:54),Math.sin(q)*(i%2?46:54),al.color,1.3)}c.restore();c.globalAlpha=A0*.8;_arc(0,-62,36,0,TAU,al.color,2);c.globalAlpha=A0;
  _e(0,2,26,6,'#0007');
  if(e==='shield'){const hi='#d6e3f3',lo='#8da6c4';
@@ -1211,7 +1221,7 @@ function drawAsura(e){if(e.vi===undefined){e.vi=Math.floor(Math.random()*3);e.sd
  const k=e.brute?'brute':e.archer?'archer':e.armor?'sentinel':e.bomb?'bomb':e.heal?'shaman':e.fly?'yaksha':'raider',sk=k==='bomb'?['#d4d6cc','#8a8e84']:k==='shaman'?['#a98a6a','#5a4630']:SKN[e.vi],t=elapsed+e.sd,w=(e.phase||0)*9,s1=Math.sin(w),fc=hero.x<e.x?-1:1,sq=e.hit>0?Math.min(1,e.hit*5):0,
   sc={brute:.66,archer:.5,sentinel:.58,bomb:.5,shaman:.52,yaksha:.54,raider:.5}[k];
  _sw=s1*8;_l1=Math.max(0,Math.cos(w))*4;_l2=Math.max(0,-Math.cos(w))*4;
- c.save();c.translate(e.x,e.y+18-Math.abs(s1)*1.2*sc);c.scale(sc*fc*(1+sq*.12),sc*(1-sq*.1));c.lineCap='round';_e(0,2,22,6,'#0007');
+ c.save();c.translate(e.x,e.y+18-Math.abs(s1)*1.2*sc);c.scale(sc*fc*(1+sq*.12),sc*(1-sq*.1)*FUH);c.lineCap='round';_e(0,2,22,6,'#0007');
  if(k==='yaksha'){const fl=Math.sin(t*9)*7;for(const sg of [-1,1])_p([[sg*8,-62],[sg*(36+fl),-92+fl],[sg*42,-70],[sg*34,-64],[sg*37,-50],[sg*24,-56],[sg*16,-48]],'#23456e')}
  if(k==='archer'){_l(-6,-62,-12,-84,'#5a3a22',4);_l(-8,-84,-6,-88,'#d9b44a',2)}
  stand(sk[0],sk[1]);
@@ -1242,7 +1252,7 @@ function drawAsura(e){if(e.vi===undefined){e.vi=Math.floor(Math.random()*3);e.sd
  c.restore()}
 function bossBody(sk,garb,hair){stand(sk[0],sk[1]);if(garb)asGarb(garb[0],garb[1])}
 function drawBossSprite(b){const t=elapsed,n=b.name,w=t*9,s1=Math.sin(w),fc=hero.x<b.x?-1:1,sc=b.r/16*.5,sw=Math.sin(t*4)*.2;_sw=s1*7;_l1=Math.max(0,Math.cos(w))*3.5;_l2=Math.max(0,-Math.cos(w))*3.5;
- c.save();c.translate(b.x,b.y+46*sc);c.scale(sc*fc,sc);c.lineCap='round';_e(0,2,30,8,'#0008');
+ c.save();c.translate(b.x,b.y+46*sc);c.scale(sc*fc,sc*FUH);c.lineCap='round';_e(0,2,30,8,'#0008');
  if(n==='MARICHA'){const q=w*1.3;for(const [x,p] of [[-14,0],[-8,Math.PI],[10,Math.PI],[16,0]]){const o=Math.sin(q+p)*6;_lm(x,-24,x+o,-3-Math.max(0,Math.cos(q+p))*4,3.4,'#e8c050','#a07a20');_e(x+o,-1,3,2,'#5a3a14')}
   _e(0,-30,26,12,_g(0,-30,26,'#f8d870','#c8941e'));for(let i=0;i<11;i++)_e(-18+i*3.6,-30+Math.sin(i*2.3)*6,1.6,1.6,'#fff6d8');_p([[-26,-34],[-36,-42-Math.sin(t*5)*3],[-28,-28]],'#fff0b8');
   _lm(18,-36,26,-52,7,'#f1c85a','#b88a1e');_e(29,-57,6.4,4.8,_g(29,-57,7,'#f4cf6a','#c89a2a'));_e(34,-56,2.8,2.2,'#ffe9a8');_e(30,-59,1.3,1.3,'#ff3030');_p([[26,-61],[21,-68],[28,-63]],'#e8b84a');_e(29,-63,1.4,1.4,'#7ad0ff');
@@ -1322,7 +1332,7 @@ function drawBossSprite(b){const t=elapsed,n=b.name,w=t*9,s1=Math.sin(w),fc=hero
  else{arm(-11,-60,-19,-50);arm(11,-60,19,-52)}
  c.restore()}
 function drawSoldier(n){const t=elapsed+n.seed,k=n.ast.kind,col=n.ast.color,mv=n.fl?1:0,s1=Math.sin(t*11)*mv,fc=Math.cos(n.fa||0)<-.2?-1:1,rc=n.cmax&&n.cd>n.cmax-.12?1:0,sk=['#d7a574','#9a6a40'];
- c.save();c.translate(n.x,n.y+14);c.scale(.5*fc,.5);c.lineCap='round';_e(0,1,17,5,'#0007');
+ c.save();c.translate(n.x,n.y+14);c.scale(.5*fc,.5*FUH);c.lineCap='round';_e(0,1,17,5,'#0007');
  if(k==='wind'){c.strokeStyle='#eefaff';c.lineWidth=3.4;c.globalAlpha=.85;c.beginPath();c.moveTo(-6,-66);c.bezierCurveTo(-18,-64+Math.sin(t*8)*4,-26,-58+Math.sin(t*8+1)*6,-34,-60+Math.sin(t*8+2)*7);c.stroke();c.globalAlpha=1}
  _lm(-4,-30,-4+s1*5,-2-Math.max(0,-s1)*3,5,sk[0],sk[1]);_lm(4,-30,4-s1*5,-2-Math.max(0,s1)*3,5,sk[0],sk[1]);_e(-4+s1*5,-1,4.5,2.4,'#3a2414');_e(4-s1*5,-1,4.5,2.4,'#3a2414');
  _p([[-9,-44],[9,-44],[12,-12],[-12,-12]],_v(-44,-12,'#f0ece0','#b9b19c'));_l(-10,-14,10,-14,col,2);
@@ -1342,7 +1352,7 @@ function drawSoldier(n){const t=elapsed+n.seed,k=n.ast.kind,col=n.ast.color,mv=n
  else{const pl=rc?-3:0,ln=rc?30:24;_arc(10,0,12,-1.1,1.1,k==='cosmic'?'#ffe28a':'#c9a24a',2.2);const bx=10+12*Math.cos(1.1),by=12*Math.sin(1.1);_l(bx,-by,6+pl,0,'#fff3d0',.7);_l(bx,by,6+pl,0,'#fff3d0',.7);_l(6+pl,0,ln,0,col,1.8);_p([[ln,0],[ln-5,-2.2],[ln-5,2.2]],'#fff')}
  c.restore()}
 function drawCitizen(n){if(offV(n))return;if(n.sold&&n.ast){drawSoldier(n);return}const t=elapsed+n.seed,k=n.type,sc={child:.34,man:.46,woman:.44,elder:.42,sadhu:.46}[k],st=n.fl?Math.sin(t*12)*3:0,[sk,cl,hr]={man:['#d7a06c','#ece6d4','#2a1c14'],woman:['#dba878','#c8283c','#1b1214'],child:['#e0b080','#3d9ad0','#1b1214'],elder:['#c99466','#f0ece0','#e6e6e6'],sadhu:['#c18d5e','#e0742a','#2a1c14']}[k],pray=n.rescued&&!n.fl;
- c.save();c.translate(n.x,n.y+14);c.scale(sc,sc);c.lineCap='round';_e(0,1,16,5,'#0007');_lm(-4,-30,-4+st*.4,-2,5,sk,'#9a6a40');_lm(4,-30,4-st*.4,-2,5,sk,'#9a6a40');
+ c.save();c.translate(n.x,n.y+14);c.scale(sc,sc*FUH);c.lineCap='round';_e(0,1,16,5,'#0007');_lm(-4,-30,-4+st*.4,-2,5,sk,'#9a6a40');_lm(4,-30,4-st*.4,-2,5,sk,'#9a6a40');
  _p(k==='woman'?[[-8,-48],[8,-48],[14,-3],[-14,-3]]:[[-8,-48],[8,-48],[11,-16],[-11,-16]],_v(-48,-3,cl,'#00000055'));_e(0,-56,6.5,7.4,_g(0,-56,8,sk,'#9a6a40'));
  if(k==='man')_p([[-7,-59],[7,-59],[6,-67],[-6,-67]],'#d9d0b0');else if(k==='woman'){_e(0,-61,7,4.6,hr);_e(-5,-64,3.4,3.4,hr);_p([[-9,-50],[-7,-48],[-13,-18],[-15,-22]],'#e8c25a')}else if(k==='sadhu'){_e(0,-61,7.4,5,hr);_p([[-4,-52],[4,-52],[0,-42]],hr);_l(-5,-48,5,-36,'#7a4a22',1.4)}else if(k==='elder'){_e(0,-61,6.6,3.4,hr);_l(14,-48,14,-2,'#7a5a32',2.2)}else _e(0,-61,6.6,4.2,hr);
  if(pray){_lm(-8,-44,-1,-38,4,sk,'#9a6a40');_lm(8,-44,1,-38,4,sk,'#9a6a40')}else{const w=n.rescued?0:Math.sin(t*8)*5;_lm(-9,-44,-16,-62+w,4,sk,'#9a6a40');_lm(9,-44,16,-62-w,4,sk,'#9a6a40')}c.restore();
@@ -1388,7 +1398,7 @@ function saintsTick(dt){soldierTick(dt);tAtk=Math.max(0,tAtk-dt);tToast=Math.max
  if(tHp>0&&tHp<tMax){const calm=!asuras.some(e=>dist(e,map.temple)<230),f=calm?1:(saints.length?.4:0);tHp=Math.min(tMax,tHp+(1+saints.length*4+saved*.25)*f*dt);if(f&&saints.length&&Math.random()<dt*4)burst(map.temple.x+rand(-50,50),map.temple.y-10,'#9affd2',1,40)}
  if(tAtk>0&&tToast<=0){toast('ASURAS ARE BREAKING THE TEMPLE');tToast=6;shake=Math.max(shake,5)}
  if(tHp<=0&&active){tHp=0;toast('THE TEMPLE HAS FALLEN');finish()}}
-function drawSaint(s){if(offV(s))return;const t=elapsed+s.seed;c.save();c.translate(s.x,s.y+12);c.scale(.5,.5);c.lineCap='round';
+function drawSaint(s){if(offV(s))return;const t=elapsed+s.seed;c.save();c.translate(s.x,s.y+12);c.scale(.5,.5*FUH);c.lineCap='round';
  c.globalAlpha=.22+.12*Math.sin(t*2);c.fillStyle='#ffd98a';c.beginPath();c.arc(0,-36,52,0,TAU);c.fill();c.globalAlpha=1;
  _e(0,2,26,7,'#0007');_e(0,-8,25,8,'#c8641e');_p([[-12,-14],[12,-14],[15,-52],[-15,-52]],_v(-52,-14,'#e8782a','#a84a14'));_lm(-12,-46,-22,-18,4.6,'#d6a074','#9a6a40');_lm(12,-46,22,-18,4.6,'#d6a074','#9a6a40');
  _e(0,-62,8,9,_g(0,-62,10,'#d6a074','#9a6a40'));_p([[-8,-61],[8,-61],[6,-36],[0,-31],[-6,-36]],'#f2f0e8');_e(0,-71,8.4,4.6,'#f2f0e8');_e(0,-78,4,4,'#f2f0e8');
@@ -1454,7 +1464,9 @@ function drawBuilding(b){
  c.fillStyle='rgba(4,3,10,.16)';                     // soft spill beyond the shadow
  c.beginPath();
  c.moveTo(x-sx*.3,y+h*.1);c.lineTo(x+w-sx*.3,y+h*.1);c.lineTo(x+w+sx*1.5,y+sy*1.5+h*.3);c.lineTo(x+sx*1.5,y+sy*1.5+h*.3);c.closePath();c.fill();
- /* --- the volume: vertical walls rising from the front edge --- */
+ /* --- the volume: from here on we work in upright space anchored at the front edge,
+        so walls have true height while the footprint below stays flat on the ground --- */
+ c.save();c.translate(x+w/2,y+h);c.scale(1,INV);c.translate(-(x+w/2),-(y+h));
  const Hh=Math.min(30, 10+h*.16);                     // wall height in screen space
  /* front wall (facing the camera, catches sky light) */
  _p([[x,y+h],[x+w,y+h],[x+w,y+h-Hh],[x,y+h-Hh]],wallL);
@@ -1500,7 +1512,7 @@ function drawBuilding(b){
    c.fillRect(wx,y+h-Hh+5,7,8);c.globalAlpha=1;
    c.fillStyle='rgba(255,207,135,.10)';c.fillRect(wx-2,y+h-Hh+3,11,12);   // window bloom
  }
- c.restore();
+ c.restore();c.restore();
 }
 const VIL=[{n:'PANCHAVATI',s:'Raiders swarm the forest hamlet. Hold the temple.',g:'#1d2a21',r:'#38392f',l:'#ffe08a',t:'#3c8a4a'},{n:'KISHKINDHA',s:'The vanara villagers shelter behind you.',g:'#2a2320',r:'#4a3c32',l:'#ffb070',t:'#c8803c'},{n:'DANDAKARANYA',s:'Maya fog hides archers in the deep forest.',g:'#1b1a2c',r:'#2f2a40',l:'#b9a2ff',t:'#6a4cc0'},{n:'LANKA OUTSKIRTS',s:'The fires of Lanka burn. The warlord is near.',g:'#2c1717',r:'#42282a',l:'#ff7a5a',t:'#d03a30'},{n:'SETU BANDHA',s:'Hold the bridge. Asuras guard the sea road.',g:'#13232c',r:'#2e4048',l:'#8fe3ff',t:'#3aa0c8'},
 {n:'KAILASA',s:'Snow and silence. The mountain itself is watching.',g:'#232a33',r:'#3c4652',l:'#cfe6ff',t:'#7fa8c8'},
@@ -1520,6 +1532,7 @@ function drawCity(){
  c.fillStyle='rgba(255,220,160,.14)';c.beginPath();c.arc(0,0,128,Math.PI*1.05,Math.PI*1.95);c.fill();
  c.fillStyle='#6f5040';c.beginPath();c.arc(0,-4,110,0,TAU);c.fill();
  c.fillStyle='#82604c';c.beginPath();c.arc(0,-8,92,0,TAU);c.fill();
+ c.save();c.translate(0,16);c.scale(1,INV);c.translate(0,-16);
  /* --- shrine body: extruded box with a sunlit left face and shaded right face --- */
  const bw=78,bh=56,H=44,bx=-bw/2,by=-16;
  c.fillStyle='rgba(4,3,10,.30)';c.beginPath();c.ellipse(6,by+bh+6,bw*.72,16,0,0,TAU);c.fill();      // contact shadow
@@ -1544,7 +1557,7 @@ function drawCity(){
  /* --- finial + banner --- */
  _e(0,cy-4,4,6,'#ffe6a2');_l(0,cy-10,0,cy-26,'#d8b46a',2);
  c.fillStyle='#e0554c';c.beginPath();c.moveTo(0,cy-26);c.lineTo(16,cy-21+Math.sin(elapsed*2)*1.5);c.lineTo(0,cy-15);c.fill();
- c.restore();
+ c.restore();c.restore();
  // market awnings
  for(const q of LAY.stalls){c.fillStyle=q.c;c.globalAlpha=.75;c.fillRect(q.x,q.y,30,20);c.globalAlpha=1}
  // parallax horizon glow at top of map (far region)
@@ -1567,7 +1580,7 @@ function drawParallaxBG(){
 }
 function draw(){
  c.clearRect(0,0,W,H);if(!hero){c.fillStyle='#100b18';c.fillRect(0,0,W,H);return}
- c.save();if(shake>0)c.translate(rand(-shake,shake),rand(-shake,shake));c.translate(W/2,H/2);c.scale(ZOOM,ZOOM);c.translate(-camera.x,-camera.y);if(!cityCache||cityCache.v!==vi())buildCache();c.drawImage(cityCache,0,0,map.w,map.h);
+ c.save();if(shake>0)c.translate(rand(-shake,shake),rand(-shake,shake));c.translate(W/2,H/2);c.scale(ZOOM,ZOOM*TILT);c.translate(-camera.x,-camera.y);if(!cityCache||cityCache.v!==vi())buildCache();c.drawImage(cityCache,0,0,map.w,map.h);
  // 2.5D parallax: subtle background drift based on camera position
  const pOffX=Math.sin(elapsed*.12)*.3+(camera.x-W/2)*.002;
  const pOffY=Math.cos(elapsed*.10)*.2+(camera.y-H/2)*.002;
@@ -1616,6 +1629,13 @@ heroKit(hero.x,hero.y,elapsed);drawHuman(hero.x,hero.y,hero.angle,1.55*zScale(he
  // held astral staff / bow
  c.save();c.translate(hero.x+(Math.cos(hero.angle)>=0?11:-11)*1.3,hero.y-24*zScale(hero.y));c.rotate(hero.angle);c.scale(1.05,1.05);c.strokeStyle='#e0b84a';c.lineWidth=3;c.beginPath();c.arc(10,3,18,-1,1);c.stroke();c.lineWidth=1;c.strokeStyle='#fff3d0';c.beginPath();c.moveTo(19.7,-12);c.lineTo(8,3);c.lineTo(19.7,18);c.stroke();c.strokeStyle=astras[astraIndex].color;c.lineWidth=4;c.shadowBlur=18;c.shadowColor=astras[astraIndex].color;c.beginPath();c.moveTo(8,3);c.lineTo(31,3);c.stroke();c.fillStyle=astras[astraIndex].color;c.beginPath();c.arc(32,3,5,0,TAU);c.fill();c.restore();
  c.restore();
+ /* --- atmospheric perspective: with a real depth axis, the far half of the screen
+        hazes out toward the sky colour, which is what sells distance in 3D --- */
+ if(!perf){const Vf=VIL[vi()];
+  const fg=c.createLinearGradient(0,0,0,H*.72);
+  fg.addColorStop(0,Vf.l+'26');fg.addColorStop(.45,Vf.l+'11');fg.addColorStop(.78,Vf.l+'05');fg.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=fg;c.fillRect(0,0,W,H*.78);
+ }
  if(!(perf||lite)&&!embers.length)for(let i=0;i<45;i++)embers.push({x:rand(0,W),y:rand(0,H),s:rand(1.5,3),v:rand(.2,.7),p:rand(0,99)});
  c.fillStyle='#ffb66e';for(const m of embers){m.y-=m.v;m.x+=Math.sin((m.y+m.p)/40)*.3;if(m.y<-5){m.y=H+5;m.x=rand(0,W)}c.globalAlpha=.45;c.fillRect(m.x,m.y,m.s,m.s)}c.globalAlpha=1;
  if(flash>0){let g=c.createRadialGradient(W/2,H/2,Math.min(W,H)*.3,W/2,H/2,Math.max(W,H)*.7);g.addColorStop(0,'rgba(255,40,60,0)');g.addColorStop(1,'rgba(255,40,60,'+flash+')');c.fillStyle=g;c.fillRect(0,0,W,H)}
@@ -1652,9 +1672,9 @@ let tutT=0,tutRaf=0,tutCvs=[],howOpen=false,coachOn=false,tutPending=false,coach
 const CIT_VOICE=['Thank you!','We prayed you would come!','Save my family!','Praise the astras!','Please hurry!','We believe in you!','Do not leave us!','You are our hope!'];
 const TS={get:()=>{try{return localStorage.getItem('astraTutDone')}catch(e){return null}},set:()=>{try{localStorage.setItem('astraTutDone','1')}catch(e){}}};
 function mc(w,h,fn,z=1,oy=.82){const cv=document.createElement('canvas');cv.width=w*2;cv.height=h*2;cv.style.width=w+'px';cv.style.height=h+'px';cv.className='mc';tutCvs.push({cv,w,h,fn,z,oy});return cv}
-function miniFrame(){const eo=elapsed,cx=camera.x,cy=camera.y,ho=hero,real=c;elapsed=tutT;if(!hero)hero={x:99999,y:0,hp:1,maxHp:1,angle:0,mv:true,fire:0};
+function miniFrame(){const eo=elapsed,cx=camera.x,cy=camera.y,ho=hero,real=c,fu=FUH;FUH=1;elapsed=tutT;if(!hero)hero={x:99999,y:0,hp:1,maxHp:1,angle:0,mv:true,fire:0};
  for(const q of tutCvs){if(!q.cv.isConnected||q.cv.offsetParent===null)continue;const g=q.cv.getContext('2d');g.setTransform(2,0,0,2,0,0);const bg=g.createLinearGradient(0,0,0,q.h);bg.addColorStop(0,'#2a1c38');bg.addColorStop(1,'#1a2a22');g.fillStyle=bg;g.fillRect(0,0,q.w,q.h);g.translate(q.w/2,q.h*q.oy);g.scale(q.z,q.z);c=g;camera.x=0;camera.y=0;try{q.fn(tutT)}catch(e){}}
- c=real;elapsed=eo;camera.x=cx;camera.y=cy;hero=ho}
+ c=real;elapsed=eo;camera.x=cx;camera.y=cy;hero=ho;FUH=fu}
 function tutLoop(){tutT+=.016;miniFrame();tutRaf=howOpen?requestAnimationFrame(tutLoop):0}
 const heroDraw=t=>{const A=0;heroKit(0,-18,t);drawHuman(0,-18,A,1.25,'#efe8d6','#f2c14e','hero',t*1.3);karna(0,-18,A);c.save();c.translate(0,-26);c.strokeStyle='#e0b84a';c.lineWidth=3;c.beginPath();c.arc(10,3,18,-1,1);c.stroke();c.restore()};
 const spr=(k,col)=>t=>{c.globalCompositeOperation='lighter';c.drawImage(sprite(k,col),(((t*14)|0)&7)*64,0,64,64,-40,-52,80,80);c.globalCompositeOperation='source-over'};
