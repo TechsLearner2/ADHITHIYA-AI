@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='52' font-size='52'>🏹</text></svg>">
 <meta name="theme-color" content="#100b18">
-<title>ASTRA: The Asura War v7.7 — Story Edition</title>
+<title>ASTRA: The Asura War v7.8 — Refurbished</title>
 <style>
 :root{--gold:#ffd27b;--cyan:#82eaff;--violet:#c3a0ff;--red:#ff7182;--bg:#100b18;--pad:clamp(112px,31vw,150px)}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:system-ui,Segoe UI,Arial,sans-serif;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
@@ -43,7 +43,65 @@ canvas.mc{position:static;inset:auto;display:block}
 .track{height:9px;border-radius:20px;background:#39202b;border:1px solid #ffb2a044;overflow:hidden;margin-top:5px}
 .fill{height:100%;width:100%;background:linear-gradient(90deg,#ff5d70,#ffca78);transition:width .15s}
 #objective{position:absolute;top:58px;left:50%;transform:translateX(-50%);padding:7px 12px;border:1px solid #ffdb8d55;border-radius:30px;background:#170f20cc;color:#ffe9bf;font-size:10px;white-space:nowrap}
-#bottom{position:absolute;bottom:14px;left:14px;width:min(340px,55vw);background:#160f20dd;border:1px solid #d7ad654a;border-radius:10px;padding:10px}
+#bottom{position:absolute;bottom:14px;left:14px;width:min(340px,55vw);
+ background:linear-gradient(160deg,#1b1225ee,#0d0814ee);border:1px solid #d7ad654a;border-radius:12px;padding:12px 13px 11px;
+ box-shadow:0 10px 34px #000a,0 0 0 1px #00000055 inset,0 0 26px #e9a64d0d inset;
+ backdrop-filter:blur(3px)}
+/* gold corner ticks on the vitals frame - same motif as the panels */
+#bottom::before,#bottom::after{content:'';position:absolute;width:16px;height:16px;pointer-events:none;opacity:.7}
+/* mission plate: a gem, a rule, then the live state */
+#objective{display:flex;align-items:center;gap:9px;background:linear-gradient(90deg,#160f20dd,#160f2099 70%,transparent);
+ border-left:2px solid #ffd88f;border-radius:0 8px 8px 0;padding:7px 14px 7px 10px;max-width:min(560px,72vw);
+ font-size:10.5px;letter-spacing:.14em;font-weight:800;color:#e8d7b4;box-shadow:0 4px 20px #0007}
+#objective .obGem{width:7px;height:7px;flex:0 0 auto;border-radius:2px;background:linear-gradient(140deg,#fff0c0,#e0a63e);
+ box-shadow:0 0 10px #ffca6c88;transform:rotate(45deg);animation:obPulse 2.4s ease-in-out infinite}
+@keyframes obPulse{0%,100%{box-shadow:0 0 8px #ffca6c66}50%{box-shadow:0 0 16px #ffca6ccc}}
+#objective.hard{border-left-color:#ff7a7a}#objective.hard .obGem{background:linear-gradient(140deg,#ffb0b0,#c83030)}
+#objective.rush{border-left-color:#8fe3ff}#objective.rush .obGem{background:linear-gradient(140deg,#d6f6ff,#3aa0c8)}
+/* help: a compact chip that expands on hover, instead of a wall of text */
+#help{display:inline-flex;align-items:center;gap:7px;background:#160f20cc;border:1px solid #d7ad6533;border-radius:20px;
+ padding:5px 12px 5px 6px;font-size:9.5px;letter-spacing:.12em;color:#a99b82;font-weight:700;max-width:min(720px,88vw);
+ overflow:hidden;white-space:nowrap;transition:color .2s,border-color .2s}
+#help b{display:grid;place-items:center;width:15px;height:15px;flex:0 0 auto;border-radius:50%;
+ background:#ffd88f;color:#1a0f05;font-size:10px;font-weight:900}
+#help:hover{color:#f2e6cd;border-color:#d7ad6588}
+/* rarity identity: colour, glow and a top rule per tier */
+#upgradeCards .card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+ background:linear-gradient(90deg,transparent,currentColor,transparent);opacity:.85}
+#upgradeCards .card.c{color:#9fd4a0;border-color:#9fd4a055}
+#upgradeCards .card.r{color:#8fc8ff;border-color:#8fc8ff66;box-shadow:0 0 24px #6ab0ff1f inset}
+#upgradeCards .card.e{color:#e0a6ff;border-color:#e0a6ff77;box-shadow:0 0 30px #c86cff2e inset}
+#upgradeCards .card:hover{transform:translateY(-3px);border-color:currentColor;
+ box-shadow:0 14px 34px #000a,0 0 30px currentColor inset}
+#upgradeCards .card:active{transform:translateY(0) scale(.99)}
+/* the card's own sigil: a slowly turning void behind the text */
+#upgradeCards .card::after{content:'';position:absolute;right:-28px;bottom:-30px;width:110px;height:110px;pointer-events:none;
+ border-radius:50%;background:conic-gradient(from 0deg,currentColor 0 2deg,transparent 2deg 18deg);
+ opacity:.10;animation:sigil 26s linear infinite}
+@keyframes sigil{to{transform:rotate(360deg)}}
+#upgradeCards .card .kicker{color:currentColor;opacity:.9;letter-spacing:.24em;font-size:9px;font-weight:900;margin-bottom:9px}
+#upgradeCards .card b{display:block;font-size:15px;line-height:1.2;color:#fff3d8;margin-bottom:7px;letter-spacing:.02em}
+#upgradeCards .card p{font-size:11.5px;line-height:1.45;color:#c6b79c;margin:0}
+#upgradeCards .card .cardKey{position:absolute;left:12px;bottom:9px;font-size:9px;letter-spacing:.2em;opacity:.35;color:#fff}
+#upgradeCards .card:hover .cardKey{opacity:.8}
+#bottom::before{top:5px;left:5px;border-top:1.5px solid #ffd88f;border-left:1.5px solid #ffd88f;border-top-left-radius:4px}
+#bottom::after{bottom:5px;right:5px;border-bottom:1.5px solid #ffd88f;border-right:1.5px solid #ffd88f;border-bottom-right-radius:4px}
+#bottom .line{display:flex;justify-content:space-between;align-items:baseline;font-size:9.5px;letter-spacing:.18em;color:#c8b48d;margin:7px 0 4px;font-weight:800}
+#bottom .line span:last-child{color:#ffe7bd;letter-spacing:.10em;font-variant-numeric:tabular-nums}
+#bottom .track{height:9px;border-radius:6px;background:#00000066;box-shadow:0 1px 0 #ffffff10 inset,0 0 0 1px #00000060;
+ overflow:hidden;position:relative}
+#bottom .fill{height:100%;border-radius:6px;transition:width .18s ease-out;position:relative}
+/* moving sheen inside each bar so they read as living, not painted */
+#bottom .fill::after{content:'';position:absolute;inset:0;border-radius:6px;
+ background:linear-gradient(180deg,#ffffff45,#ffffff00 55%,#00000030);
+ background-size:100% 100%}
+#bottom #hpFill{background:linear-gradient(90deg,#8c2233,#f0576a 55%,#ff9a8a)}
+#bottom #divFill{background:linear-gradient(90deg,#6a4a12,#e0b64e 55%,#fff0b8)}
+#bottom #hpFill.low{animation:hpPulse .7s ease-in-out infinite}
+@keyframes hpPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.55) saturate(1.3)}}
+/* damage flash on the vitals frame */
+#bottom.hurt{animation:frameHurt .32s ease-out}
+@keyframes frameHurt{0%{box-shadow:0 0 0 2px #ff4a4a99,0 0 30px #ff4a4a66}100%{box-shadow:0 10px 34px #000a}}
 .line{display:flex;justify-content:space-between;font-size:9px;color:#d7c7ad;letter-spacing:.12em;margin:4px 0}
 #health .fill{background:linear-gradient(90deg,#e84e62,#ffb16e)}
 #divine .fill{background:linear-gradient(90deg,#7c73ff,#ffd889)}
@@ -94,7 +152,10 @@ button:active{transform:translateY(1px)}
 .note{font-size:9px;line-height:1.8;color:#a99bac;margin-top:14px}
 #upgrade,#end,#codex{display:none}
 .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}
-.card{border:1px solid #eac77b66;background:#241a2c;padding:15px;border-radius:10px;cursor:pointer;min-height:130px}
+.card{position:relative;overflow:hidden;border:1px solid #eac77b66;
+ background:radial-gradient(120% 90% at 50% -20%,#3a2946 0%,transparent 60%),linear-gradient(160deg,#241a2c,#150e1c);
+ padding:16px 15px 14px;border-radius:12px;cursor:pointer;min-height:150px;
+ transition:transform .14s cubic-bezier(.2,.9,.3,1),box-shadow .18s,border-color .18s;}
 .card:hover{border-color:#ffe3a3;background:#3a2b36}
 .card b{font-size:17px;color:#ffe1a0}.card p{font-size:10px;line-height:1.5;color:#c5b8c7}
 #mobile{position:fixed;inset:0;display:none;pointer-events:none;z-index:5}
@@ -287,7 +348,7 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
 <div id="hud">
  <div class="top"><div class="brand">ASTRA <small>THE ASURA WAR · BHARATAKSHETRA</small></div><div class="stats">
  <div class="stat"><label>WAVE</label><b id="wave">01</b></div><div class="stat"><label>TIME</label><b id="time">00:00</b></div><div class="stat"><label>ASURA FALLEN</label><b id="kills">0</b></div><div class="stat"><label>ASTRA</label><b id="astraName">AGNI</b></div></div></div>
- <div id="objective">DEFEND THE TEMPLE DISTRICT · FIND THE ASURA WARLORD</div>
+ <div id="objective"><i class="obGem"></i><span id="obText">DEFEND THE TEMPLE DISTRICT · FIND THE ASURA WARLORD</span></div>
  <div id="diffBadge"></div>
  <div id="battleLog"></div>
  <div id="bossPanel"><div id="bossName">RAVANA · TEN-HEADED KING</div><div class="track"><div class="fill" id="bossFill"></div></div></div>
@@ -298,7 +359,7 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
   <div class="line"><span>ASTRA MASTERY</span><span id="xpText">0 / 5</span></div><div class="track"><div class="fill" id="xpFill" style="width:0%;background:linear-gradient(90deg,#73cfff,#d4f6ff)"></div></div>
  </div>
  <div id="weaponBar"></div>
- <div id="help">WASD MOVE · MOUSE AIM · CLICK / SPACE CAST · 1–7 SELECT ASTRA · STAND STILL TO EMPOWER NARAYANA · BOSSES UNLOCK ASTRAS · Q DIVINE HELPLINE · SHIFT DASH</div>
+ <div id="help"><b>?</b><span id="helpTxt">WASD MOVE · MOUSE AIM · CLICK / SPACE CAST · 1–7 SELECT ASTRA · SHIFT DASH · Q DIVINE AID</span></div>
 </div>
 <div id="menu" class="overlay">
  <canvas id="menuBgCanvas"></canvas>
@@ -387,7 +448,7 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
 <div id="story"><div id="sArt"></div><button id="sSkip" class="weapon">SKIP ▸▸</button><div id="sCard"></div><div id="sBox"><div id="sT"></div><div id="sL"></div><div id="sHint">tap to continue</div></div></div>
 <div class="overlay" id="pauseOv" style="display:none"><div class="panel" style="text-align:center"><h2>PAUSED</h2><p><button class="weapon" id="autoBtn"></button> <button class="weapon" id="hapBtn"></button></p><p><button class="weapon" id="musBtn"></button> <button class="weapon" id="mantBtn"></button></p><p>MUSIC VOLUME<br><input id="volR" type="range" min="0" max="100" value="100" style="width:70%"></p><p><button class="weapon" id="lefBtn"></button> <button class="weapon" id="perfBtn"></button> <button class="weapon" id="fsBtn">FULLSCREEN</button></p>
 <p><button class="weapon" id="howPause">HOW TO PLAY</button> <button class="weapon" id="resumeBtn">RESUME</button></p><small>P / Esc also pauses</small></div></div>
-<div id="howto" class="overlay"><div class="panel" id="howPanel"><div class="kicker">ASTRA · THE ASURA WAR · v7.7</div><h2>HOW TO PLAY</h2><div class="htabs" id="howTabs"></div><div id="howBody"></div><div class="hfoot"><button id="howTour">▶ GUIDED TOUR</button><button id="howClose" class="weapon" style="padding:12px 18px;font-size:11px">CLOSE</button></div></div></div>
+<div id="howto" class="overlay"><div class="panel" id="howPanel"><div class="kicker">ASTRA · THE ASURA WAR · v7.8</div><h2>HOW TO PLAY</h2><div class="htabs" id="howTabs"></div><div id="howBody"></div><div class="hfoot"><button id="howTour">▶ GUIDED TOUR</button><button id="howClose" class="weapon" style="padding:12px 18px;font-size:11px">CLOSE</button></div></div></div>
 <div id="coach"><div id="cSpot"></div><div id="cTip"><h3 id="cT"></h3><p id="cX"></p><div class="cb"><button id="cBack" class="weapon">◂ BACK</button><small id="cN"></small><button id="cNext">NEXT ▸</button></div><div style="text-align:center;margin-top:8px"><button id="cSkip" class="weapon" style="font-size:9px;padding:5px 10px">SKIP TOUR</button></div></div></div>
 <div id="mantra"><div class="mdl"></div><div class="mdl b"></div><div class="mw"><div class="mk" id="mGod"></div><div class="md" id="mDev"></div><div class="mr" id="mRom"></div><div class="mm" id="mMean"></div><div class="mbar"><i id="mFill"></i></div><div class="ms" id="mSkip">TAP TO CONTINUE</div></div></div>
 <div id="mobile" style="display:none"><button id="pauseBtn" class="weapon">II</button><div class="pad" id="leftPad"><div class="knob"></div></div><div class="pad" id="rightPad"><div class="knob"></div></div><button id="dashBtn">DASH</button><button id="divineBtn">DIVINE AID</button></div>
@@ -779,7 +840,7 @@ function drawLayout(V){const T=map.temple,strk=(p,w,col)=>{c.strokeStyle=col;c.l
 }
 function reset(){runBosses=0;runSlain=[];rushCd=0;combo=0;comboT=0;try{mode=localStorage.getItem('astraMode')||mode}catch(e){}applyMode();astras.forEach((a,i)=>{a.damage=BASE[i].d;a.rate=BASE[i].r});gods.forEach((g,i)=>g.duration=GD[i]);BN={};lastOffer=[];
  makeCity();hero={x:map.temple.x,y:map.temple.y+70,r:15,hp:140,maxHp:140,speed:305,angle:-Math.PI/2,fire:0,dashCd:0,power:1,rate:1,range:650,level:1,shield:0,healAura:0};
- pendingUp=0;$('objective').textContent=VIL[0].n+' · '+VIL[0].s;$('pauseOv').style.display='none';$('bossPanel').style.display='none';$('divineNotice').style.display='none';$('toast').classList.remove('show');asuras=[];shots=[];effects=[];sparks=[];kills=0;score=0;wave=1;elapsed=0;spawn=1;xp=0;xpNeed=5;divineCharge=100;divineCooldown=0;divine=null;boss=null;invuln=0;shake=0;astraIndex=0;camera={x:hero.x,y:hero.y};
+ pendingUp=0;$('obText').textContent=VIL[0].n+' · '+VIL[0].s;$('pauseOv').style.display='none';$('bossPanel').style.display='none';$('divineNotice').style.display='none';$('toast').classList.remove('show');asuras=[];shots=[];effects=[];sparks=[];kills=0;score=0;wave=1;elapsed=0;spawn=1;xp=0;xpNeed=5;divineCharge=100;divineCooldown=0;divine=null;boss=null;invuln=0;shake=0;astraIndex=0;camera={x:hero.x,y:hero.y};
  civilians=[{x:map.temple.x-70,y:map.temple.y+30,rescued:false},{x:map.temple.x+65,y:map.temple.y-35,rescued:false},{x:map.temple.x+20,y:map.temple.y+115,rescued:false}];civilians.forEach((n,i)=>{n.type=['woman','child','elder'][i];n.seed=i*7});saved=0;lost=0;lostS=0;bossKills=0;ultCd=0;bossSp=0;$('ultBtn').style.display='none';tHp=tMax=800;tAtk=0;tSh=180;tShHit=0;saints=[];for(let i=0;i<3;i++){const a=i*TAU/3+.5;saints.push({x:map.temple.x+Math.cos(a)*170,y:map.temple.y+Math.sin(a)*150,hp:60,max:60,seed:i*5})}for(let i=0;i<4;i++)spawnCitizens(true);
  pickups=[];texts=[];rings=[];ghosts=[];allies=[];novas=[];gold=0;ritual=null;$('mantra').className='';hero.nBoost=0;flash=0;hpPrev=hero.hp;vibT=0;renderWeapons();updateHud();tension=0;guruAura=0;runBestScore=0;bossBanned={};$('diffBadge').textContent=diffMode.toUpperCase()
 }
@@ -976,7 +1037,7 @@ function levelUp(){if($('upgrade').style.display==='grid'){pendingUp++;return}pa
  let pool=BO.filter(b=>(BN[b[0]]||0)<b[4]&&b[5]()).map(b=>({b,w:W[b[3]]*(b[0]===cur?3:1)*(lastOffer.includes(b[0])?.25:1)})),picks=[];
  while(picks.length<3&&pool.length){let tot=pool.reduce((a,p)=>a+p.w,0),r=Math.random()*tot,k=0;for(;k<pool.length-1;k++){r-=pool[k].w;if(r<=0)break}picks.push(pool[k].b);pool.splice(k,1)}
  lastOffer=picks.map(b=>b[0]);$('upgradeCards').innerHTML='';
- picks.forEach((b,i)=>{const el=document.createElement('div'),n=BN[b[0]]||0;el.className='card '+b[3];el.innerHTML='<div class="kicker">'+{c:'COMMON',r:'RARE',e:'EPIC'}[b[3]]+(b[4]>1?' · LV '+(n+1)+'/'+b[4]:' · ONE-TIME')+'</div><b>'+b[1]+'</b><p>'+b[2]+'</p>';
+ picks.forEach((b,i)=>{const el=document.createElement('div'),n=BN[b[0]]||0;el.className='card '+b[3];el.innerHTML='<div class="kicker">'+{c:'COMMON',r:'RARE',e:'EPIC'}[b[3]]+(b[4]>1?' · LV '+(n+1)+'/'+b[4]:' · ONE-TIME')+'</div><b>'+b[1]+'</b><p>'+b[2]+'</p><div class="cardKey">'+(i+1)+'</div>';
   el.onclick=()=>{BN[b[0]]=n+1;b[6]();paused=false;$('upgrade').style.display='none';if(pendingUp>0){pendingUp--;setTimeout(levelUp,50)}toast(b[1]);sound(850,.18,'triangle',.04)};$('upgradeCards').appendChild(el)});
  $('upgrade').style.display='grid';sound(440,.3,'sine',.04)}
 function update(dt){
@@ -993,7 +1054,7 @@ function update(dt){
  if(tg)hero.angle=Math.atan2(tg.y-hero.y,tg.x-hero.x);else if(Math.hypot(aim.x,aim.y)>.15)hero.angle=Math.atan2(aim.y,aim.x);else if(mouse.active){let target=worldAt(mouse.x,mouse.y);hero.angle=Math.atan2(target.y-hero.y,target.x-hero.x)}else if(l>.05)hero.angle=Math.atan2(my,mx);
  if(mouse.down||keys.Space||tg||Math.hypot(aim.x,aim.y)>.25)fire();
  spawn-=dt;if(spawn<=0){if(mode!=='rush'){const cnt=Math.min(2+Math.floor(wave*.5*diffMul),Math.floor(7*diffMul));for(let i=0;i<cnt;i++)spawnAsura()}spawn=Math.max(.34,1.15-wave*.055)/diffMul}
- let nextWave=1+Math.floor(elapsed/modeWaveRate);if(nextWave>wave){wave=nextWave;toast('ASURA LEGION · WAVE '+wave);if((wave-1)%4===0){const V=VIL[vi()];toast(V.n+' · '+V.s);story('v'+(vi()%5));$('objective').textContent=V.n+' · '+V.s;ring(hero.x,hero.y,V.t,520);shake=8}ring(hero.x,hero.y,'#ffe1a0',420);sound(240,.3,'sine',.04);waveCue();spawnCitizens(false);if(wave>=4&&wave%3===1&&saints.length&&!asuras.some(e=>e.guru))spawnGuru();if(wave%2===0)spawnSaint();
+ let nextWave=1+Math.floor(elapsed/modeWaveRate);if(nextWave>wave){wave=nextWave;toast('ASURA LEGION · WAVE '+wave);if((wave-1)%4===0){const V=VIL[vi()];toast(V.n+' · '+V.s);story('v'+(vi()%5));$('obText').textContent=V.n+' · '+V.s;ring(hero.x,hero.y,V.t,520);shake=8}ring(hero.x,hero.y,'#ffe1a0',420);sound(240,.3,'sine',.04);waveCue();spawnCitizens(false);if(wave>=4&&wave%3===1&&saints.length&&!asuras.some(e=>e.guru))spawnGuru();if(wave%2===0)spawnSaint();
   // mode cadence: ENDLESS puts a warlord on every wave, STORY every other wave,
   // BOSS RUSH has no waves at all (handled below) so the player only ever duels warlords
   if(!boss&&(mode==='endless'||(mode==='story'&&wave%2===0)))spawnBoss()}
@@ -1033,7 +1094,13 @@ function update(dt){
  tension+=(Math.min(1,asuras.length/15+(boss?.3:0))*.1-tension)*dt;
  camera.x+=(hero.x-camera.x)*.09;camera.y+=(hero.y-camera.y)*.09;updateHud();troT-=dt;if(troT<=0){troT=.9;checkTrophies()}
 }
-function updateHud(){$('wave').textContent=mode==='rush'?('D'+(runBosses+1)):String(wave).padStart(2,'0');$('time').textContent=clock(elapsed);$('kills').textContent=kills;$('hpText').textContent=Math.ceil(hero.hp)+' / '+hero.maxHp;$('hpFill').style.width=hero.hp/hero.maxHp*100+'%';$('divFill').style.width=divineCharge+'%';$('divText').textContent=divine?divine.name+' '+Math.ceil(divine.time)+'s':divineCooldown>0?'COOLDOWN '+Math.ceil(divineCooldown)+'s':divineCharge>=100?'READY':Math.floor(divineCharge)+'%';$('xpText').textContent=Math.floor(xp)+' / '+xpNeed;$('xpFill').style.width=xp/xpNeed*100+'%';if(boss)$('bossFill').style.width=boss.hp/boss.max*100+'%';$('astraName')&&($('astraName').textContent=astras[astraIndex].short);$('objective').textContent='['+diffMode.toUpperCase()+'] TEMPLE '+Math.ceil(tHp/tMax*100)+'% · RISHIS '+saints.length+' · SAVED '+saved+' · PERIL '+civilians.filter(n=>!n.rescued).length+' · LOST '+lost}
+function updateHud(){
+ /* vitals feedback: pulse when critical, flash the frame on a hit */
+ {const f=$('hpFill');if(f)f.classList.toggle('low',hero.hp/hero.maxHp<.3);
+  if(hero.hp<hpPrev-0.5){const b=$('bottom');if(b){b.classList.remove('hurt');void b.offsetWidth;b.classList.add('hurt')}}
+  hpPrev=hero.hp}
+ $('wave').textContent=mode==='rush'?('D'+(runBosses+1)):String(wave).padStart(2,'0');$('time').textContent=clock(elapsed);$('kills').textContent=kills;$('hpText').textContent=Math.ceil(hero.hp)+' / '+hero.maxHp;$('hpFill').style.width=hero.hp/hero.maxHp*100+'%';$('divFill').style.width=divineCharge+'%';$('divText').textContent=divine?divine.name+' '+Math.ceil(divine.time)+'s':divineCooldown>0?'COOLDOWN '+Math.ceil(divineCooldown)+'s':divineCharge>=100?'READY':Math.floor(divineCharge)+'%';$('xpText').textContent=Math.floor(xp)+' / '+xpNeed;$('xpFill').style.width=xp/xpNeed*100+'%';if(boss)$('bossFill').style.width=boss.hp/boss.max*100+'%';$('astraName')&&($('astraName').textContent=astras[astraIndex].short);$('obText').textContent='TEMPLE '+Math.ceil(tHp/tMax*100)+'% · RISHIS '+saints.length+' · SAVED '+saved+' · IN PERIL '+civilians.filter(n=>!n.rescued).length+' · LOST '+lost;
+ $('objective').className=diffMode;}
 function clock(t){return String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0')}
 function worldAt(x,y){return{x:(x-W/2)/ZOOM+camera.x,y:(y-H/2)/(ZOOM*TILT)+camera.y}}
 
@@ -1836,7 +1903,10 @@ function startCoach(){if(!active||coachOn)return;coachOn=true;paused=true;coachS
 function endCoach(){if(coachShow.prev)coachShow.prev();coachShow.prev=null;coachOn=false;$('coach').style.display='none';$('cSpot').style.cssText='';TS.set();if($('pauseOv').style.display!=='grid')paused=false;
  if(storyQ){const q=storyQ;storyQ=null;setTimeout(()=>{try{story(q)}catch(e){}},260)}}
 $('cNext').onclick=()=>{if(coachI>=coachSteps.length-1)endCoach();else{coachI++;coachShow()}};$('cBack').onclick=()=>{if(coachI>0){coachI--;coachShow()}};$('cSkip').onclick=endCoach;
-addEventListener('keydown',e=>{if(coachOn){if(e.code==='Enter'||e.code==='ArrowRight'||e.code==='Space'){e.preventDefault();$('cNext').click()}else if(e.code==='ArrowLeft')$('cBack').click();else if(e.code==='Escape')endCoach()}else if(howOpen&&e.code==='Escape'){closeHow()}},true);
+addEventListener('keydown',e=>{
+ /* 1/2/3 pick an upgrade card - the hint is printed on each card */
+ if($('upgrade').style.display==='grid'&&/^Digit[123]$/.test(e.code)){const cards=$('upgradeCards').children;const c=cards[+e.code.slice(5)-1];if(c){e.preventDefault();c.click();return}}
+ if(coachOn){if(e.code==='Enter'||e.code==='ArrowRight'||e.code==='Space'){e.preventDefault();$('cNext').click()}else if(e.code==='ArrowLeft')$('cBack').click();else if(e.code==='Escape')endCoach()}else if(howOpen&&e.code==='Escape'){closeHow()}},true);
 addEventListener('resize',()=>{if(coachOn)coachShow()});
 $('howBtn').onclick=openHow;$('howPause').onclick=openHow;$('howClose').onclick=closeHow;$('howTour').onclick=()=>{closeHow();if(active){$('pauseOv').style.display='none';paused=false;setTimeout(startCoach,150)}else{tutPending=true;start()}};
 $('start').onclick=start;$('again').onclick=start;
