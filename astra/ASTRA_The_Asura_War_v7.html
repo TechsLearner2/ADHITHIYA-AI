@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='52' font-size='52'>🏹</text></svg>">
 <meta name="theme-color" content="#100b18">
-<title>ASTRA: The Asura War v7.2 — Content Edition</title>
+<title>ASTRA: The Asura War v7.3 — Cinematic Edition</title>
 <style>
 :root{--gold:#ffd27b;--cyan:#82eaff;--violet:#c3a0ff;--red:#ff7182;--bg:#100b18;--pad:clamp(112px,31vw,150px)}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:system-ui,Segoe UI,Arial,sans-serif;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
@@ -55,7 +55,32 @@ canvas.mc{position:static;inset:auto;display:block}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 #divineNotice{position:absolute;top:35%;left:50%;transform:translateX(-50%);text-align:center;font-size:11px;letter-spacing:.15em;color:#fff0c7;text-shadow:0 0 15px #ffda8b;display:none}
 .overlay{z-index:10;position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:radial-gradient(ellipse at center,#30213bdb,#090710f5 75%)}
-.panel{touch-action:pan-y;width:min(680px,96vw);max-height:94vh;overflow:auto;background:linear-gradient(145deg,#24172d,#100d19);border:1px solid #f1c77b77;border-radius:16px;padding:clamp(18px,4vw,38px);box-shadow:0 25px 100px #000b,0 0 45px #e9a64d18}
+.panel{touch-action:pan-y;width:min(680px,96vw);max-height:94vh;overflow:auto;position:relative;
+ background:
+  radial-gradient(120% 80% at 50% -10%, #3a2440 0%, transparent 55%),
+  repeating-linear-gradient(45deg,#0000000d 0 6px,transparent 6px 12px),
+  linear-gradient(150deg,#2a1b34 0%,#191224 45%,#0e0a16 100%);
+ border:1px solid #f1c77b88;border-radius:14px;padding:clamp(18px,4vw,38px);
+ box-shadow:0 25px 100px #000c,0 0 0 1px #00000066 inset,0 0 60px #e9a64d1f inset,0 0 45px #e9a64d18}
+/* carved gold corner brackets - the temple-frame motif */
+.panel::before,.panel::after{content:'';position:absolute;width:34px;height:34px;pointer-events:none;opacity:.85}
+.panel::before{top:8px;left:8px;border-top:2px solid #ffd88f;border-left:2px solid #ffd88f;border-top-left-radius:6px;
+ box-shadow:-1px -1px 12px #ffca6c55}
+.panel::after{bottom:8px;right:8px;border-bottom:2px solid #ffd88f;border-right:2px solid #ffd88f;border-bottom-right-radius:6px;
+ box-shadow:1px 1px 12px #ffca6c55}
+/* faint mandala rosette behind the content */
+.panel>*{position:relative;z-index:1}
+#menu .panel::marker,#menu .panel{--x:0}
+.menu-mandala{position:absolute;inset:-20% -20% auto -20%;height:120%;pointer-events:none;opacity:.05;
+ background:repeating-conic-gradient(from 0deg,#ffd27b 0 3deg,transparent 3deg 15deg);
+ mask-image:radial-gradient(circle at 50% 32%,#000 0 28%,transparent 62%);
+ -webkit-mask-image:radial-gradient(circle at 50% 32%,#000 0 28%,transparent 62%);
+ animation:mandalaSpin 90s linear infinite}
+@keyframes mandalaSpin{to{transform:rotate(360deg)}}
+.menu-title{letter-spacing:.01em;
+ background:linear-gradient(180deg,#fff6dc 0%,#ffd27b 48%,#c98a2e 100%);
+ -webkit-background-clip:text;background-clip:text;color:transparent;
+ filter:drop-shadow(0 2px 0 #3a1f08) drop-shadow(0 0 26px #ffb34d55)}
 .kicker{font-size:10px;letter-spacing:.3em;color:#ffdb96;font-weight:800}
 h1{font-size:clamp(48px,10vw,92px);line-height:.83;letter-spacing:.02em;margin:18px 0;color:#fff0cf}
 h1 span{color:#ffcb74;text-shadow:0 0 24px #ff9c4c66}
@@ -132,7 +157,24 @@ button:active{transform:translateY(1px)}
 
 body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPad{right:auto!important;left:14px!important}
 #story{position:fixed;inset:0;z-index:30;background:#05030a;display:none;flex-direction:column;opacity:0;transition:opacity .6s}#story.on{display:flex;opacity:1}
-#sArt{flex:1;min-height:0;overflow:hidden}#sArt svg{width:100%;height:100%;animation:kb 14s ease-out forwards}@keyframes kb{from{transform:scale(1)}to{transform:scale(1.14)}}
+/* cinematic film layer over the story art */
+#sArt{flex:1;min-height:0;overflow:hidden;position:relative}
+#sArt::after{content:'';position:absolute;inset:0;pointer-events:none;
+ background:
+  radial-gradient(120% 100% at 50% 45%,transparent 45%,#05030ad9 100%),
+  repeating-linear-gradient(0deg,#0000000f 0 2px,transparent 2px 4px);
+ mix-blend-mode:multiply;opacity:.85}
+#sArt::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:2;
+ background:linear-gradient(#05030a 0%,transparent 12%,transparent 88%,#05030a 100%)}
+/* slow push-in on every story beat, on top of the existing ken-burns */
+#sArt svg{animation:kb 14s ease-out forwards,beatPulse 9s ease-in-out infinite alternate}
+@keyframes beatPulse{from{filter:brightness(1) saturate(1)}to{filter:brightness(1.14) saturate(1.2)}}
+#sArt .flicker{animation:flick 3.2s steps(3) infinite}
+@keyframes flick{0%,100%{opacity:.9}33%{opacity:.6}66%{opacity:1}}
+#sBox{position:relative}
+#sHint{animation:hintPulse 1.8s ease-in-out infinite}
+@keyframes hintPulse{0%,100%{opacity:.45}50%{opacity:1}}
+#sArt svg{width:100%;height:100%;animation:kb 14s ease-out forwards}@keyframes kb{from{transform:scale(1)}to{transform:scale(1.14)}}
 .orb{animation:rs 7s ease-out forwards}@keyframes rs{from{transform:translateY(90px)}to{transform:none}}
 .tw{animation:tw 2.4s infinite alternate}@keyframes tw{from{opacity:.15}to{opacity:1}}
 .h1{animation:dr 18s linear infinite alternate}.h2{animation:dr 11s linear infinite alternate-reverse}@keyframes dr{from{transform:translateX(-18px)}to{transform:translateX(18px)}}
@@ -142,6 +184,7 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
 #sBox{padding:14px 18px calc(18px + env(safe-area-inset-bottom,0px));text-align:center;background:linear-gradient(#05030a00,#05030a 25%)}
 #sT{font-weight:900;letter-spacing:.2em;color:#ffd98a;font-size:14px;margin-bottom:8px}#sL{color:#f3e6cf;font-size:15px;line-height:1.5;min-height:3.2em}#sHint{color:#ffffff66;font-size:11px;margin-top:8px}
 #story.on #sT{animation:ti 1.6s ease-out}@keyframes ti{from{letter-spacing:.7em;opacity:0}to{letter-spacing:.2em;opacity:1}}
+@keyframes cammove{from{transform:scale(1)}to{transform:scale(1.06) translateY(-6px)}}
 .ry{transform-origin:290px 110px;animation:sp 50s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}.bd{animation:bf 9s linear infinite}@keyframes bf{from{transform:translateX(-40px)}to{transform:translateX(440px)}}
 .em{animation:emb 4s linear infinite}@keyframes emb{from{transform:translateY(0);opacity:0}20%{opacity:.9}to{transform:translateY(-190px);opacity:0}}.kl{animation:kp 2s infinite alternate}@keyframes kp{from{opacity:.3}to{opacity:1}}
 .sf{transform-box:fill-box;transform-origin:right center;animation:sw 1.2s ease-in-out infinite alternate}@keyframes sw{to{transform:skewY(10deg)}}.ar{animation:af 3.2s linear infinite}@keyframes af{0%{transform:translateX(0);opacity:0}15%,80%{opacity:1}100%{transform:translateX(260px);opacity:0}}
@@ -244,6 +287,7 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
 <div id="menu" class="overlay">
  <canvas id="menuBgCanvas"></canvas>
  <div class="panel">
+  <div class="menu-mandala"></div>
   <div class="menu-kicker">A KARTHA-LIKE GUARDIAN'S STAND · BHARATAKSHETRA</div>
   <h1 class="menu-title">ASTRA:<span>THE ASURA WAR</span></h1>
   <div class="menu-sub">The temple city of Bharatakshetra crumbles. Ravana's legions sweep across villages — you alone stand between ash and dharma. Wield the seven celestial astras. Call upon the gods. Hold the line.</div>
@@ -327,7 +371,7 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
 <div id="story"><div id="sArt"></div><button id="sSkip" class="weapon">SKIP ▸▸</button><div id="sCard"></div><div id="sBox"><div id="sT"></div><div id="sL"></div><div id="sHint">tap to continue</div></div></div>
 <div class="overlay" id="pauseOv" style="display:none"><div class="panel" style="text-align:center"><h2>PAUSED</h2><p><button class="weapon" id="autoBtn"></button> <button class="weapon" id="hapBtn"></button></p><p><button class="weapon" id="musBtn"></button> <button class="weapon" id="mantBtn"></button></p><p>MUSIC VOLUME<br><input id="volR" type="range" min="0" max="100" value="100" style="width:70%"></p><p><button class="weapon" id="lefBtn"></button> <button class="weapon" id="perfBtn"></button> <button class="weapon" id="fsBtn">FULLSCREEN</button></p>
 <p><button class="weapon" id="howPause">HOW TO PLAY</button> <button class="weapon" id="resumeBtn">RESUME</button></p><small>P / Esc also pauses</small></div></div>
-<div id="howto" class="overlay"><div class="panel" id="howPanel"><div class="kicker">ASTRA · THE ASURA WAR · v7.2</div><h2>HOW TO PLAY</h2><div class="htabs" id="howTabs"></div><div id="howBody"></div><div class="hfoot"><button id="howTour">▶ GUIDED TOUR</button><button id="howClose" class="weapon" style="padding:12px 18px;font-size:11px">CLOSE</button></div></div></div>
+<div id="howto" class="overlay"><div class="panel" id="howPanel"><div class="kicker">ASTRA · THE ASURA WAR · v7.3</div><h2>HOW TO PLAY</h2><div class="htabs" id="howTabs"></div><div id="howBody"></div><div class="hfoot"><button id="howTour">▶ GUIDED TOUR</button><button id="howClose" class="weapon" style="padding:12px 18px;font-size:11px">CLOSE</button></div></div></div>
 <div id="coach"><div id="cSpot"></div><div id="cTip"><h3 id="cT"></h3><p id="cX"></p><div class="cb"><button id="cBack" class="weapon">◂ BACK</button><small id="cN"></small><button id="cNext">NEXT ▸</button></div><div style="text-align:center;margin-top:8px"><button id="cSkip" class="weapon" style="font-size:9px;padding:5px 10px">SKIP TOUR</button></div></div></div>
 <div id="mantra"><div class="mdl"></div><div class="mdl b"></div><div class="mw"><div class="mk" id="mGod"></div><div class="md" id="mDev"></div><div class="mr" id="mRom"></div><div class="mm" id="mMean"></div><div class="mbar"><i id="mFill"></i></div><div class="ms" id="mSkip">TAP TO CONTINUE</div></div></div>
 <div id="mobile" style="display:none"><button id="pauseBtn" class="weapon">II</button><div class="pad" id="leftPad"><div class="knob"></div></div><div class="pad" id="rightPad"><div class="knob"></div></div><button id="dashBtn">DASH</button><button id="divineBtn">DIVINE AID</button></div>
@@ -337,11 +381,43 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
 'use strict';
 let c;const canvas=document.getElementById('world'),$=id=>document.getElementById(id);c=canvas.getContext('2d');
 let mode='story',modeWaveRate=22,bossRushN=0,rushCd=0,runBosses=0,runSlain=[],skinIdx=(()=>{try{return +(localStorage.getItem('astraSkin')||0)||0}catch(e){return 0}})(),lite=false,fpsT=16,liteT=0,qtier=0,qFrames=0,qAcc=0,bossKills=0,ultCd=0,bossSp=0,tSh=0,tShMax=0,tShHit=0,vol=1,perf=false,storyOn=false,W=innerWidth,H=innerHeight,D=1,last=0,raf=0,active=false,paused=false;
+// ===== GAMEPAD: left stick moves, right stick aims, A casts, B dashes, Y divine, X ultimate =====
+let padPrev={};
+function pollPad(){
+ const pads=navigator.getGamepads?navigator.getGamepads():null;if(!pads)return;
+ let gp=null;for(const p of pads){if(p&&p.connected){gp=p;break}}
+ if(!device.pad&&gp){device.pad=true}
+ if(!gp)return;
+ const dz=v=>Math.abs(v)<.22?0:v;
+ const lx=dz(gp.axes[0]||0),ly=dz(gp.axes[1]||0),rx=dz(gp.axes[2]||0),ry=dz(gp.axes[3]||0);
+ move.x=lx;move.y=ly;
+ if(Math.hypot(rx,ry)>.25){aim.x=rx;aim.y=ry;if(!autoAim)autoAim=true}
+ const b=i=>gp.buttons[i]&&gp.buttons[i].pressed;
+ const edge=(k,on)=>{if(on&&!padPrev[k]){padPrev[k]=1;return true}if(!on)padPrev[k]=0;return false};
+ if(edge('a',b(0)))fire();
+ if(edge('b',b(1)))dash();
+ if(edge('y',b(3)))divineCall();
+ if(edge('x',b(2)))ultimate();
+ if(edge('start',b(9)))togglePause();
+ if(edge('lb',b(4)))selectAstra((astraIndex+astras.length-1)%astras.length);
+ if(edge('rb',b(5)))selectAstra((astraIndex+1)%astras.length);
+}
 function resize(){D=Math.min(devicePixelRatio||1,perf?1:qtier>=2?1.25:2);W=innerWidth;H=innerHeight;if(canvas.width!==W*D||canvas.height!==H*D){canvas.width=W*D;canvas.height=H*D}c.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
+function detectDevice(){
+ const ua=navigator.userAgent||'';
+ const touch=(navigator.maxTouchPoints||0)>0||'ontouchstart' in window;
+ const coarse=(typeof matchMedia==='function')&&(function(){try{return matchMedia('(pointer: coarse)').matches}catch(e){return false}})();
+ const mobile=/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|Opera Mini/i.test(ua)||(touch&&coarse&&innerWidth<1100);
+ const tablet=(/iPad|Tablet/i.test(ua)||(touch&&innerWidth>=768))&&!mobile;
+ const steam=/Valve|Steam/i.test(ua);
+ return {touch,coarse,mobile,tablet,steam,desktop:!touch,
+  pad:(navigator.getGamepads&&[...(navigator.getGamepads()||[])].some(g=>g&&g.connected)),
+  mac:/Mac|iPhone|iPad/i.test(ua),win:/Windows/i.test(ua),linux:/Linux/i.test(ua)&&!/Android/i.test(ua)};
+}
 let hitStop=0,hitStopCd=0,combo=0,comboT=0,helpFaded=false,troT=1;
 const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),TAU=Math.PI*2;
 const map={w:3000,h:2200,temple:{x:1500,y:1100,r:205}};
-let hero,asuras=[],shots=[],effects=[],sparks=[],civilians=[],buildings=[],keys={},mouse={x:W/2,y:H/2,down:false,active:false},pendingUp=0,texts=[],pickups=[],embers=[],flash=0,hpPrev=120,vibT=0,autoAim='ontouchstart' in window||navigator.maxTouchPoints>0,haptics=true,cityCache=null,rings=[],ghosts=[],allies=[],move={x:0,y:0},aim={x:0,y:0},camera={x:1500,y:1100},elapsed=0,wave=1,kills=0,score=0,xp=0,xpNeed=5,spawn=0,boss=null,divineCharge=100,divineCooldown=0,divine=null,toastT=0,shake=0,invuln=0,astraIndex=0,gameTime=0,audio=null,ritual=null,novas=[],gold=0,saved=0,lost=0,saints=[],tHp=800,tMax=800,tAtk=0,tToast=0,lostS=0,tension=0,guruAura=0,runBestScore=0,diffMul=1,diffMode='normal',bossBanned={},synergySeen={},
+let hero,asuras=[],shots=[],effects=[],sparks=[],civilians=[],buildings=[],keys={},mouse={x:W/2,y:H/2,down:false,active:false},pendingUp=0,texts=[],pickups=[],embers=[],flash=0,hpPrev=120,vibT=0,autoAim=true,device=detectDevice(),haptics=true,cityCache=null,rings=[],ghosts=[],allies=[],move={x:0,y:0},aim={x:0,y:0},camera={x:1500,y:1100},elapsed=0,wave=1,kills=0,score=0,xp=0,xpNeed=5,spawn=0,boss=null,divineCharge=100,divineCooldown=0,divine=null,toastT=0,shake=0,invuln=0,astraIndex=0,gameTime=0,audio=null,ritual=null,novas=[],gold=0,saved=0,lost=0,saints=[],tHp=800,tMax=800,tAtk=0,tToast=0,lostS=0,tension=0,guruAura=0,runBestScore=0,diffMul=1,diffMode='normal',bossBanned={},synergySeen={},
 prog=(()=>{try{return JSON.parse(localStorage.getItem('astraProg'))||{bk:0,ck:0}}catch(e){return{bk:0,ck:0}}})();
 const astras=[
  {name:'AGNEYASTRA',short:'AGNI',color:'#ff9a48',damage:3,speed:820,rate:.26,kind:'fire',desc:'A blazing celestial bolt that bursts on impact.'},
@@ -442,7 +518,7 @@ function synthesizeSyllable(syl,profile,baseFreq,dur){
 function synthesizeMantra(mantraKey, profile){
   const sylSeq=SING_MEL[mantraKey]||SING_MEL['om gam ga na pa ta ye na mah'];
   const baseFreq=SINGER.mf2(profile.base);
-  const durPerNote=.35;
+  const durPerNote=.52;
   const bufArr=[];
   for(let i=0;i<sylSeq.length;i++){
     const step=sylSeq[i];
@@ -466,8 +542,8 @@ function renderFullMantra(godProfile,mantraKey){
 }
 
 /* ===== 2.5D PERSPECTIVE ENGINE ===== */
-const PERSP=.00018;// perspective strength: lower = flatter, higher = more depth
-function zScale(wy){return 1+((wy-map.h/2)*PERSP);}// scale factor based on world Y
+const PERSP=.00042;// 2.5D depth: raised from .00018 - far rows now visibly smaller
+function zScale(wy){return Math.max(.72,Math.min(1.3,1+((wy-map.h/2)*PERSP)))}// depth scale, clamped so nothing explodes
 function zShad(x,y,r){return r*(1+(y-map.h/2)*PERSP*.5);};// shadow radius with depth
 function zAlpha(y,base=.9){return Math.max(.3,Math.min(1,base-(y-map.h/2)*PERSP*2));};// alpha fade for distance
 /* ===== AUDIO ENGINE: raga-based procedural score + Sanskrit chant ===== */
@@ -509,8 +585,26 @@ function speak(text,onend,onstart){try{speechSynthesis.cancel();TTS.q=[];const p
 // real mantra audio: tries hosted mp3, falls back to singer synthesis
 function playMantra(key,devText){
   const x=initAudio();if(!x)return;
-  // try real recording first
-  try{const a=new Audio('/mantra_'+key+'.mp3');a.onloadeddata=()=>{a.play().catch(()=>{})};a.onerror=()=>{};return}catch(e){}
+  // Real recording first: any of mantra_<god>.mp3 / .ogg / .m4a / .webm dropped next to
+  // this file, or listed in window.MANTRA_SRC, is used and the synth is skipped.
+  // (Previously this branch constructed an Audio object, fired no play(), and returned
+  //  unconditionally - so the synth never ran and nothing was ever heard.)
+  const ext=(window.MANTRA_SRC&&window.MANTRA_SRC[key])||('mantra_'+key);
+  const tryReal=(i,list)=>{
+    if(i>=list.length)return false;
+    const a=new Audio(ext+list[i]);
+    let settled=false;
+    const ok=()=>{if(settled)return;settled=true;a.oncanplaythrough=a.onloadeddata=a.onerror=null;
+      a.volume=Math.max(0,Math.min(1,vol));a.play().catch(()=>{});
+      if(ritual){if(isFinite(a.duration)&&a.duration>0)ritual.se=a.duration+.4;a.td=false}
+      a.onended=()=>{if(ritual)ritual.td=true};
+      A.src=a;if(ritual)ritual.ts=true};
+    const bad=()=>{if(settled)return;settled=true;a.oncanplaythrough=a.onloadeddata=a.onerror=null;tryReal(i+1,list)};
+    a.oncanplaythrough=ok;a.onloadeddata=ok;a.onerror=bad;
+    try{a.load()}catch(e){bad();return true}
+    return true;
+  };
+  if(tryReal(0,['.mp3','.ogg','.m4a','.webm']))return;
   // map effect key to mantra syllable sequence
   const SYL_MAP={
     shield:'om na mah shi vA ya',
@@ -535,9 +629,9 @@ function playMantra(key,devText){
     const s=x.createBufferSource(),g=x.createGain();
     s.buffer=buf;g.gain.value=1.6; // boost for vocal presence
     s.connect(g);g.connect(A.rit);
-    s.onended=()=>{if(ritual)ritual.td=true};
+    s.onended=()=>{if(ritual)ritual.td=true;if(ritual)ritual.se=0};
     s.start();A.src=s;
-    if(ritual)ritual.ts=true;ritual.se=buf.duration+1;
+    if(ritual){ritual.ts=true;ritual.se=buf.duration+.6}
   }
   speak(devText)}
 const BUF={};
@@ -593,9 +687,9 @@ function beginRitual(g){const m=g.mantra;ritual={g,t:0,td:true,ts:false,se:0,fb:
 function tickRitual(dt){const R=ritual,g=R.g;R.t+=dt;flash=Math.max(0,flash-dt*1.2);gold=Math.max(0,gold-dt*1.6);
  for(const r of [...rings]){r.life-=dt;if(r.life<=0)rings.splice(rings.indexOf(r),1)}for(const p of [...effects]){p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;if(p.life<=0)effects.splice(effects.indexOf(p),1)}for(const n of [...novas]){n.t+=dt;if(n.t>=n.life)novas.splice(novas.indexOf(n),1)}
  if(Math.random()<dt*7)burst(hero.x+rand(-70,70),hero.y+rand(-70,70),g.color,3,60);
- const W2=$('mDev').children,p=R.td&&R.t>5.4?1:clamp(R.t/(R.se||10),0,1),k=Math.ceil(p*W2.length);for(let i=0;i<W2.length;i++)W2[i].classList.toggle('lit',i<k);$('mFill').style.width=Math.min(100,R.t/(R.se||10)*100)+'%';if(R.t>2.5)$('mSkip').className='ms on';
+ const W2=$('mDev').children,p=R.td&&R.t>5.4?1:clamp(R.t/(R.se||10),0,1),k=Math.ceil(p*W2.length);for(let i=0;i<W2.length;i++)W2[i].classList.toggle('lit',i<k);$('mFill').style.width=Math.min(100,R.t/(R.se||10)*100)+'%';if(R.t>2.2||R.ts||R.td)$('mSkip').className='ms on';
  if(!R.td&&!R.ts&&R.t>2.5&&!R.fb){R.fb=true;R.td=true;R.se=R.t+2.5}
- if(R.skip||R.t>=40||(R.t>=5.4&&R.td&&R.t>=R.se))finishRitual()}
+ if(R.skip||R.t>=40||(R.td&&R.t>=R.se))finishRitual()}
 function finishRitual(){const g=ritual.g;ritual=null;try{speechSynthesis.cancel();TTS.a&&TTS.a.pause();A.src&&A.src.stop()}catch(e){}if(A.ctx&&A.rit)A.rit.gain.setTargetAtTime(0,A.ctx.currentTime,.35);
  $('mantra').classList.remove('show');setTimeout(()=>{if(!ritual)$('mantra').className=''},700);manifest(g);gold=1;novas.push({x:hero.x,y:hero.y,t:0,life:1.2});
  if(A.ctx){const t=A.ctx.currentTime;[0,4,7,12,16].forEach((m,i)=>bell(mf(24+m),t+i*.09,.08));vox(SA*2,t,2.5,'a',.2,A.voice)}}
@@ -751,7 +845,7 @@ function fire(){
  if(!hero||!active||paused||ritual||hero.fire>0)return;let a=astras[astraIndex],ang=hero.angle+(divine?.effect==='durga'?rand(-.06,.06):0),boost=divine?.effect==='durga'||divine?.effect==='hanuman'?1.65:1;
  if(a.kind==='narayana'){fireNarayana(a,boost);return}
  let count=(a.kind==='wind'&&hero.windFan?3:1)+(hero.multi||0)+(divine&&divine.effect==='kartikeya'?2:0);
- for(let i=0;i<count;i++){let spread=(i-(count-1)/2)*.12;let q=ang+spread;shots.push({x:hero.x+Math.cos(q)*20,y:hero.y+Math.sin(q)*20,vx:Math.cos(q)*a.speed,vy:Math.sin(q)*a.speed,r:a.kind==='cosmic'?10:6,life:1.5,damage:a.damage*hero.power*boost,color:a.color,kind:a.kind,pierce:a.kind==='wind'&&hero.pierce?2:0,hit:[]})}
+ for(let i=0;i<count;i++){let spread=(i-(count-1)/2)*.12;let q=ang+spread;shots.push({x:hero.x+Math.cos(q)*20,y:hero.y+Math.sin(q)*20,vx:Math.cos(q)*a.speed,vy:Math.sin(q)*a.speed,r:(a.kind==='cosmic'?10:6)*(a.rMul||1),rm:a.rMul||1,life:1.5,damage:a.damage*hero.power*boost,color:a.color,kind:a.kind,pierce:a.kind==='wind'&&hero.pierce?2:0,hit:[]})}
  hero.fire=a.rate/(hero.rate*(divine&&divine.effect==='surya'?1.4:1));ring(hero.x+Math.cos(ang)*28,hero.y+Math.sin(ang)*28,a.color,22);sound(a.kind==='lightning'?740:a.kind==='fire'?260:500,.07,a.kind==='fire'?'sawtooth':'triangle',.025);
 }
 function damageAsura(e,dmg){if(!e||!asuras.includes(e))return;if(hero.crit&&Math.random()<hero.crit){dmg*=2.5;texts.length<40&&texts.push({x:e.x,y:e.y-34,t:'CRIT',life:.6})}if(e.armor)dmg*=1-e.armor;e.hp-=dmg;e.hit=.2;if(dmg>=2&&hitStopCd<=0){hitStop=Math.min(.05,hitStop+.03);hitStopCd=.13}texts.length<40&&texts.push({x:e.x+rand(-8,8),y:e.y-20,t:Math.max(1,Math.round(dmg)),life:.7});burst(e.x,e.y,e.brute?'#ff9a66':'#ffbd89',4,90);if(e.hp<=0){ghosts.push({x:e.x,y:e.y,a:Math.atan2(hero.y-e.y,hero.x-e.x),b:e.brute,life:.35});asuras.splice(asuras.indexOf(e),1);kills++;combo++;comboT=3.2;shake=Math.min(9,shake+2.2);score+=(e.brute?40:e.archer?30:20)*Math.min(6,1+combo*.1);xp+=hero.xpMul||1;if(hero.leech)hero.hp=Math.min(hero.maxHp,hero.hp+hero.leech);if(Math.random()<(e.brute?.3:.06))pickups.push({x:e.x,y:e.y,life:15});divineCharge=Math.min(100,divineCharge+2.5);burst(e.x,e.y,'#ffb66e',16);if(xp>=xpNeed){xp-=xpNeed;levelUp()}}}
@@ -805,7 +899,7 @@ function tickSynergies(){
 }
 const BASE=astras.map(a=>({d:a.damage,r:a.rate})),GD=gods.map(g=>g.duration);
 const BO=[
- ['dmg','ASTRA VIDYA','All astras deal +15% damage','c',6,()=>1,()=>hero.power*=1.15],
+ ['dmg','ASTRA VIDYA','Every astra +1 damage and +6% size','c',6,()=>1,()=>{astras.forEach(a=>{a.damage+=1;a.rMul=(a.rMul||1)*1.06})}],
  ['rate','RAPID CASTING','Cast speed +12%','c',5,()=>1,()=>hero.rate*=1.12],
  ['multi','TWIN CAST','+1 projectile on every cast','r',3,()=>1,()=>hero.multi=(hero.multi||0)+1],
  ['crit','MARMA STRIKE','+12% chance to crit for 2.5× damage','r',4,()=>1,()=>hero.crit=(hero.crit||0)+.12],
@@ -827,8 +921,8 @@ const BO=[
  ['div','DIVINE RESONANCE','Divine aid lasts 3s longer, +35 favour now','r',3,()=>1,()=>{gods.forEach(g=>g.duration+=3);divineCharge=Math.min(100,divineCharge+35)}],
  ['ult','SUDARSHANA · TIME','Ultimate recharges 20% faster','r',3,()=>bossKills>=3,()=>hero.ultMul=(hero.ultMul||1)*.8],
  ['sage','VIDYA · QUICK LEARNER','Mastery from kills +30%','r',3,()=>1,()=>hero.xpMul=(hero.xpMul||1)+.3],
- ['surya','SURYA · SOLAR BLESSING','+20% damage, +15% cast speed, +25 vitality','e',2,()=>hero.level>=4,()=>{hero.power*=1.2;hero.rate*=1.15;hero.maxHp+=25;hero.hp=Math.min(hero.maxHp,hero.hp+25)}],
- ['wrath','DHARMA\'S WRATH','+1 projectile, +15% crit chance, +25% damage','e',1,()=>hero.level>=6,()=>{hero.multi=(hero.multi||0)+1;hero.crit=(hero.crit||0)+.15;hero.power*=1.25}]];
+ ['surya','SURYA · SOLAR BLESSING','Every astra +2 damage, +15% cast speed, +25 vitality','e',2,()=>hero.level>=4,()=>{astras.forEach(a=>a.damage+=2);hero.rate*=1.15;hero.maxHp+=25;hero.hp=Math.min(hero.maxHp,hero.hp+25)}],
+ ['wrath','DHARMA\'S WRATH','+1 projectile, +15% crit chance, +1 damage per astra','e',1,()=>hero.level>=6,()=>{hero.multi=(hero.multi||0)+1;hero.crit=(hero.crit||0)+.15;astras.forEach(a=>a.damage+=1)}]];
 function levelUp(){if($('upgrade').style.display==='grid'){pendingUp++;return}paused=true;hero.level++;xpNeed=Math.ceil(xpNeed*1.3);
  const W={c:10,r:5,e:3},cur=['agni','varuna','wind','vajra','brahma','naga','nara'][astraIndex];
  let pool=BO.filter(b=>(BN[b[0]]||0)<b[4]&&b[5]()).map(b=>({b,w:W[b[3]]*(b[0]===cur?3:1)*(lastOffer.includes(b[0])?.25:1)})),picks=[];
@@ -1248,7 +1342,26 @@ function drawClone(al){if(offV(al,80))return;const t=elapsed,fd=al.t<2?Math.max(
  c.save();c.translate(al.x,al.y);c.rotate(al.a);c.lineCap='round';c.strokeStyle='#e0b84a';c.lineWidth=2.5;c.beginPath();c.arc(9,3,16,-1,1);c.stroke();c.strokeStyle=al.color;c.lineWidth=hot?5:3;c.beginPath();c.moveTo(8,3);c.lineTo(hot?38:28,3);c.stroke();c.restore();
  c.globalAlpha=fd;c.fillStyle='#fff3d0';c.font='bold 9px system-ui';c.textAlign='center';c.fillText(al.name,al.x,al.y-40);c.textAlign='left';c.globalAlpha=1}
 function drawBolts(){for(const b of bolts){c.save();c.globalAlpha=Math.min(1,b.life*7);c.strokeStyle='#dbe8ff';c.lineWidth=3;c.shadowBlur=lite?0:14;c.shadowColor='#8fb4ff';c.lineJoin='round';c.beginPath();c.moveTo(b.x1,b.y1);const n=7,dx=(b.x2-b.x1)/n,dy=(b.y2-b.y1)/n;for(let i=1;i<n;i++)c.lineTo(b.x1+dx*i+rand(-14,14),b.y1+dy*i+rand(-14,14));c.lineTo(b.x2,b.y2);c.stroke();c.restore()}}
-function drawBuilding(b){if(b.type===5){c.fillStyle='#07071099';c.fillRect(b.x+6,b.y+10,b.w,b.h);c.fillStyle='#5f596e';c.fillRect(b.x,b.y,b.w,b.h);c.fillStyle='#7d768d';c.fillRect(b.x+3,b.y+3,b.w-6,b.h-6);c.fillStyle='#4a4558';const hz=b.w>b.h;for(let k=0;k<(hz?b.w:b.h);k+=26){hz?c.fillRect(b.x+k,b.y-4,14,6):c.fillRect(b.x-4,b.y+k,6,14)}return}let x=b.x,y=b.y;c.save();c.fillStyle='#07071099';c.fillRect(x+8,y+12,b.w,b.h);let walls=['#554653','#4c4b5a','#655044','#41485a','#594b62'][b.type];c.fillStyle=walls;c.fillRect(x,y,b.w,b.h);c.fillStyle=['#8d6a53','#687080','#9a7455','#5e7180','#84688b'][b.type];c.fillRect(x-5,y-8,b.w+10,b.h+16);c.fillStyle=walls;c.fillRect(x+9,y+7,b.w-18,b.h-14);
+// 2.5D helper: draw a box with a lifted roof face and cast shadow, so buildings read as solid
+function extrude(x,y,w,h,wall,roof,cast){
+ const sx=6, sy=-7;                       // roof offset = fake height in screen space
+ if(cast!==false){c.fillStyle='rgba(6,5,12,.34)';c.beginPath();
+  c.moveTo(x+4,y+h-2);c.lineTo(x+w*0.96,y+h+2);c.lineTo(x+w*0.96+sx*1.6,y+h+sy*0.5+8);c.lineTo(x+4+sx*1.2,y+h+8);c.closePath();c.fill()}
+ c.fillStyle=wall;c.fillRect(x,y,w,h);
+ c.fillStyle=roof;                                   // top face, lighter to catch the light
+ c.beginPath();c.moveTo(x,y);c.lineTo(x+sx,y+sy);c.lineTo(x+w+sx,y+sy);c.lineTo(x+w,y);c.closePath();c.fill();
+ c.fillStyle='rgba(0,0,0,.22)';                      // right face, in shade
+ c.beginPath();c.moveTo(x+w,y);c.lineTo(x+w+sx,y+sy);c.lineTo(x+w+sx,y+h+sy);c.lineTo(x+w,y+h);c.closePath();c.fill();
+ c.strokeStyle='rgba(255,225,170,.10)';c.lineWidth=1;c.strokeRect(x+.5,y+.5,w-1,h-1);
+}
+function drawBuilding(b){if(b.type===5){c.fillStyle='#07071099';c.fillRect(b.x+6,b.y+10,b.w,b.h);c.fillStyle='#5f596e';c.fillRect(b.x,b.y,b.w,b.h);c.fillStyle='#7d768d';c.fillRect(b.x+3,b.y+3,b.w-6,b.h-6);c.fillStyle='#4a4558';const hz=b.w>b.h;for(let k=0;k<(hz?b.w:b.h);k+=26){hz?c.fillRect(b.x+k,b.y-4,14,6):c.fillRect(b.x-4,b.y+k,6,14)}return}let x=b.x,y=b.y;c.save();
+ // long cast shadow (sun is high-left) - makes the slab sit ON the ground instead of floating
+ c.fillStyle='rgba(6,5,12,.30)';c.beginPath();c.moveTo(x+3,y+b.h-2);c.lineTo(x+b.w*.97,y+b.h+3);
+ c.lineTo(x+b.w*.97+14,y+b.h+13);c.lineTo(x+3+11,y+b.h+9);c.closePath();c.fill();
+ let walls=['#554653','#4c4b5a','#655044','#41485a','#594b62'][b.type];c.fillStyle=walls;c.fillRect(x,y,b.w,b.h);c.fillStyle=['#8d6a53','#687080','#9a7455','#5e7180','#84688b'][b.type];c.fillRect(x-5,y-8,b.w+10,b.h+16);
+ c.fillStyle='rgba(255,232,190,.16)';c.fillRect(x-5,y-8,b.w+10,5);            // lit top edge
+ c.fillStyle='rgba(0,0,0,.26)';c.fillRect(x+b.w+3,y-8,7,b.h+16);              // shaded right wall
+ c.fillStyle='rgba(0,0,0,.14)';c.fillRect(x-5,y+b.h+5,b.w+10,3);              // contact linec.fillStyle=walls;c.fillRect(x+9,y+7,b.w-18,b.h-14);
  // roof geometry
  c.strokeStyle='#d9b77a55';c.lineWidth=2;c.strokeRect(x+12,y+10,b.w-24,b.h-20);c.fillStyle='#b18b5c';c.fillRect(x+b.w*.42,y+b.h*.35,b.w*.16,b.h*.28);
  // windows
@@ -1297,6 +1410,10 @@ function draw(){
  const pOffX=Math.sin(elapsed*.12)*.3+(camera.x-W/2)*.002;
  const pOffY=Math.cos(elapsed*.10)*.2+(camera.y-H/2)*.002;
  if(!perf){const V=VIL[vi()];for(let i=0;i<2;i++){const ox=W/2+pOffX*(i+1)*40-i*60,oy=H*.15+pOffY*(i+1)*25;const gr=c.createRadialGradient(ox,oy,10,ox,oy,200+i*80);gr.addColorStop(0,V.l+'12');gr.addColorStop(.6,V.g+'08');gr.addColorStop(1,'transparent');c.fillStyle=gr;c.fillRect(0,0,W,H)}}
+ // atmospheric haze: the further back a row is, the more it fades into the sky colour
+ if(!perf){const Vh=VIL[vi()];const hz=c.__haze||(c.__haze=1);
+  const gr2=c.createLinearGradient(0,0,0,map.h);gr2.addColorStop(0,Vh.l+'22');gr2.addColorStop(.35,Vh.l+'0a');gr2.addColorStop(1,'transparent');
+  c.fillStyle=gr2;c.fillRect(0,0,map.w,map.h)}
  // divine zone glow
  if(divine){c.save();c.globalAlpha=.16+.06*Math.sin(elapsed*7);c.fillStyle=divine.color;c.beginPath();c.arc(hero.x,hero.y,divine.effect==='surya'?430:115,0,TAU);c.fill();c.restore()}
  // temple healing ring
@@ -1314,7 +1431,7 @@ function draw(){
  // divine chakra and protective aura
  if(divine?.effect==='chakra'){let q=divine.spin||0;c.save();c.translate(hero.x+Math.cos(q)*65,hero.y+Math.sin(q)*65);c.rotate(q);c.strokeStyle='#ffe4a2';c.lineWidth=4;c.shadowBlur=18;c.shadowColor='#ffd36c';c.beginPath();c.arc(0,0,16,0,TAU);c.stroke();for(let i=0;i<8;i++){let a=i*TAU/8;c.beginPath();c.moveTo(Math.cos(a)*8,Math.sin(a)*8);c.lineTo(Math.cos(a)*25,Math.sin(a)*25);c.stroke()}c.restore()}
  if(divine?.effect==='shield'){c.strokeStyle='#8dd8ff';c.lineWidth=4;c.shadowBlur=25;c.shadowColor='#7edbff';c.beginPath();c.arc(hero.x,hero.y,39+Math.sin(elapsed*5)*3,0,TAU);c.stroke();c.shadowBlur=0}
- for(const s of shots){const sh=sprite(s.kind,s.color),sz=(s.kind==='ally'?Math.max(26,s.r*5.2):Math.max(40,s.r*7))*(s.kind==='cosmic'?1.5:1),fr=((elapsed*14+s.x*.02)|0)&7;
+ for(const s of shots){const sh=sprite(s.kind,s.color),sz=(s.kind==='ally'?Math.max(26,s.r*5.2):Math.max(40,s.r*7))*(s.kind==='cosmic'?1.5:1)*(s.rm||1),fr=((elapsed*14+s.x*.02)|0)&7;
   if(!(perf||lite)&&s.tr&&shots.length<=24){c.globalAlpha=.35;c.fillStyle=s.color;for(let i=0;i<s.tr.length;i+=2){const f=i/s.tr.length;c.beginPath();c.arc(s.tr[i].x,s.tr[i].y,s.r*f*.8,0,TAU);c.fill()}c.globalAlpha=1}
   c.save();c.translate(s.x,s.y);c.rotate(Math.atan2(s.vy,s.vx));c.globalCompositeOperation='lighter';c.drawImage(sh,fr*64,0,64,64,-sz/2,-sz/2,sz,sz);c.restore()}
  for(const p of effects){c.save();c.globalAlpha=clamp(p.life/p.max,0,1);c.fillStyle=p.color;c.beginPath();c.arc(p.x,p.y,p.r,0,TAU);c.fill();c.restore()}
@@ -1357,8 +1474,13 @@ function loop(t){const raw=Math.min((t-last)||16,100);fpsT=fpsT*.93+raw*.07;lite
   else if(avg<15.5&&qtier>0)qtier--;
   if(qtier!==prev){if(qtier>=1&&!lite)lite=true;if(qtier>=1&&!perf)perf=true;resize()}}
  if(liteT>1.5&&active){liteT=0;if(fpsT>24&&!lite){lite=true;toast('SMOOTH MODE ON · FEWER EFFECTS');fpsT=16}if(fpsT>30&&!perf){perf=true;resize()}}
- let dt=Math.min((t-last)/1000||0,.033);last=t;try{update(dt);draw()}catch(err){console.error(err)}raf=requestAnimationFrame(loop)}
-function start(){try{killMenu()}catch(e){}initAudio();startMusic();loadAud();navigator.wakeLock&&navigator.wakeLock.request('screen').catch(()=>{});try{if(TTS.ok){const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}}catch(e){}reset();active=true;paused=false;$('menu').style.display='none';$('end').style.display='none';$('hud').style.display='block';$('mobile').style.display=(navigator.maxTouchPoints>0||('ontouchstart' in window))?'block':'none';{const hh=document.getElementById('help');if(hh)hh.style.display=$('mobile').style.display==='block'?'none':''}last=performance.now();if(!raf)raf=requestAnimationFrame(loop);toast('THE ASTRAS AWAKEN');sound(520,.25,'sine',.04)}
+ let dt=Math.min((t-last)/1000||0,.033);last=t;try{if(active&&!paused&&!ritual){try{pollPad()}catch(e){}}update(dt);draw()}catch(err){console.error(err)}raf=requestAnimationFrame(loop)}
+function start(){try{killMenu()}catch(e){}initAudio();startMusic();loadAud();navigator.wakeLock&&navigator.wakeLock.request('screen').catch(()=>{});try{if(TTS.ok){const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}}catch(e){}reset();active=true;paused=false;$('menu').style.display='none';$('end').style.display='none';$('hud').style.display='block';$('mobile').style.display=(device.touch&&!device.pad)?'block':'none';{const hh=document.getElementById('help');if(hh)hh.style.display=$('mobile').style.display==='block'?'none':''}last=performance.now();if(!raf)raf=requestAnimationFrame(loop);
+ {const h=$('help');if(h)h.textContent=device.touch
+   ?'DRAG LEFT PAD TO MOVE · DRAG RIGHT PAD TO AIM & CAST · 1–7 / STRIP SELECTS ASTRA · DASH BUTTON DODGES · DIVINE AID BUTTON CALLS A GOD'
+   :(device.pad?'GAMEPAD / KEYBOARD: WASD MOVE · MOUSE OR RIGHT STICK AIM · CLICK OR SPACE CAST · 1–7 SELECT ASTRA · SHIFT DASH · Q DIVINE AID'
+   :'WASD MOVE · MOUSE AIM · CLICK / SPACE CAST · 1–7 SELECT ASTRA · STAND STILL TO EMPOWER NARAYANA · BOSSES UNLOCK ASTRAS · Q DIVINE HELPLINE · SHIFT DASH')}
+ toast('THE ASTRAS AWAKEN'+(device.touch?' · TOUCH CONTROLS':' · '+ (device.pad?'GAMEPAD READY':'KEYBOARD + MOUSE')));sound(520,.25,'sine',.04)}
 /* ===== HOW TO PLAY: guide pages with live sprites + interactive coach tour ===== */
 let tutT=0,tutRaf=0,tutCvs=[],howOpen=false,coachOn=false,tutPending=false,coachI=0,coachSteps=[];
 const CIT_VOICE=['Thank you!','We prayed you would come!','Save my family!','Praise the astras!','Please hurry!','We believe in you!','Do not leave us!','You are our hope!'];
@@ -1430,7 +1552,7 @@ setInterval(()=>{if(tutPending&&active&&hero&&!storyOn&&!paused&&!ritual&&!coach
 addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyP'||e.code==='Escape')togglePause();if(e.code==='KeyU')ultimate();if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();if(e.code.startsWith('Digit')&&+e.code.slice(5)>=1&&+e.code.slice(5)<=7)selectAstra(+e.code.slice(5)-1);if(e.code==='KeyQ')divineCall();
  if(e.code==='KeyD'&&e.ctrlKey){e.preventDefault();openDiff()}if(e.code==='ShiftLeft'||e.code==='ShiftRight')dash()});
 addEventListener('keyup',e=>keys[e.code]=false);
-canvas.addEventListener('pointermove',e=>{if(e.pointerType==='mouse')mouse.active=true;mouse.x=e.clientX;mouse.y=e.clientY});
+canvas.addEventListener('pointermove',e=>{if(e.pointerType==='touch'){if(!autoAim){autoAim=true;syncSet()}return}if(e.pointerType==='mouse'){mouse.active=true;autoAim=autoAim&&false}mouse.x=e.clientX;mouse.y=e.clientY});
 canvas.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'){mouse.down=true;canvas.setPointerCapture(e.pointerId)}});
 addEventListener('pointerup',e=>{if(e.pointerType==='mouse')mouse.down=false});
 function stick(id,cb){let el=$(id),k=el.querySelector('.knob'),on=false,cx=0,cy=0,R=56;function moveIt(e){let dx=e.clientX-cx,dy=e.clientY-cy,l=Math.hypot(dx,dy),m=Math.min(1,l/(R*.75));if(l){dx=dx/l*m;dy=dy/l*m}k.style.transform=`translate(${dx*R*.6}px,${dy*R*.6}px)`;cb(dx,dy)}el.addEventListener('pointerdown',e=>{e.preventDefault();on=true;el.setPointerCapture(e.pointerId);let r=el.getBoundingClientRect();R=r.width/2;cx=r.left+r.width/2;cy=r.top+r.height/2;moveIt(e)});el.addEventListener('pointermove',e=>{if(on){e.preventDefault();moveIt(e)}});function end(){on=false;k.style.transform='';cb(0,0)}el.addEventListener('pointerup',end);el.addEventListener('pointercancel',end)}
@@ -1455,12 +1577,23 @@ CH={hero:(x,y,k,f)=>`<g transform="${T(x,y,k,f)}"><g class="bob"><g class="sf"><
 SC={forest:['#0e1f2a','#3c8a4a','#ffe9a8','#12301f','stars'],hills:['#3a1f12','#c8803c','#ffd08a','#3b2414','mist'],mist:['#120f26','#6a4cc0','#d6caff','#1a1533','mist'],fire:['#2a0c0c','#d03a30','#ff9a5a','#3a1210','fire'],sea:['#06222c','#3aa0c8','#e0f6ff','#0b2f3c','waves'],war:['#1a0509','#7a1d2a','#ffc27a','#240a10','fire'],dawn:['#2b1b0a','#e8b04a','#fff1c2','#3a2610','stars']},
 SP={NARRATOR:'#ffd98a',RISHI:'#bfe8ff',HANUMAN:'#ffb070',RAVANA:'#ff7a7a'},N='NARRATOR',RI='RISHI',HA='HANUMAN',RV='RAVANA',
 BI={TATAKA:['#4a7a52','I ate the sages of this forest. Come, child, be my next meal.'],KHARA:['#8a3a3a','Fourteen thousand rakshasas march beneath my banner!'],MAHISHASURA:['#8a5a3a','No god or man can slay me. Try your arrows.'],MARICHA:['#d8a84a','Follow the golden deer... if you dare.'],KUMBHAKARNA:['#6b6a8a','Who dares wake me from my sleep?'],NARAKASURA:['#b65d43','The tyrant of Pragjyotisha bows to no one.'],INDRAJIT:['#5a4aa0','You cannot strike what you cannot see.']},
-SB={v0:{t:'PROLOGUE · PANCHAVATI',s:[['forest','L',[['rishi',120,200,1.3]],N,'In the age of Treta, dharma was shaken. Ravana, the ten-headed king of Lanka, sent his Asura legions across the land.','boom'],['war','R',[['army',10,212,.8]],N,'Village by village, the forests fell to shadow.'],['forest','in',[['rishi',110,200,1.5],['hero',250,200,1.3,1]],RI,'Child of the astras, the celestial weapons answer to you alone.','chime'],['forest','in',[['hero',150,205,1.7]],RI,'Guard the temple. Protect the villagers. Carry dharma to Lanka.'],['war','sh',[['army',200,212,.7],['hero',70,205,1.3]],N,'Panchavati, the first village. The Asuras are already at the gates.','boom']]},
+SB={v0:{t:'PROLOGUE · PANCHAVATI',s:[
+ ['dawn','in',[['rishi',120,200,1.3]],N,'Before the first village burned, there were only stars, and the long silence of the rishis.','chime'],
+ ['forest','L',[['rishi',120,200,1.3]],N,'In the age of Treta, dharma was shaken. Ravana, the ten-headed king of Lanka, sent his Asura legions across the land.','boom'],
+ ['war','R',[['army',10,212,.8]],N,'Village by village, the forests fell to shadow. Its five rivers of blessing still in their veins, the rishis kept chanting.'],
+ ['forest','in',[['rishi',110,200,1.5],['hero',250,200,1.3,1]],RI,'Child of the astras - the celestial weapons answer to you alone, and age does not yet own your hands.','chime'],
+ ['fire','L',[['army',40,212,.8],['hero',250,205,1.2,1]],N,'Astra is not a spear. It is the vow to make the weapon answer a promise: do not let the town burn.','boom'],
+ ['forest','in',[['hero',150,205,1.7]],RI,'Stand at the temple wall. Guard the villagers. Carry dharma to Lanka.','chime'],
+ ['war','sh',[['army',200,212,.7],['hero',70,205,1.3]],N,'Panchavati, the first village. The Asuras are already at the gates.','boom']]},
  v1:{t:'KISHKINDHA',s:[['hills','R',[['hanu',120,195,1.5]],HA,'Hail, bearer of the astras! I am Hanuman. The vanara folk shelter in these hills.','chime'],['hills','L',[['hanu',250,195,1.4,1],['hero',100,205,1.3]],HA,'Lanka has taken Sita-ma. Hold Kishkindha, and I will fight beside you.'],['hills','in',[['rishi',200,200,1.3]],N,'In your darkest hour, call upon the gods. Divine Aid will answer.','chime']]},
  v2:{t:'DANDAKARANYA',s:[['mist','L',[['army',20,212,.7]],N,'Maya fog rolls through the Dandaka forest. Asura archers hide in the mist.'],['mist','in',[['rishi',140,200,1.3],['hero',260,205,1.2,1]],RI,'Trust your astras, not your eyes. The fog hides arrows, not dharma.','chime']]},
- v3:{t:'LANKA OUTSKIRTS',s:[['fire','R',[['army',60,212,.8]],N,'Lanka burns. Asura forward camps glow like coals on the horizon.','boom'],['fire','in',[['rav',300,185,.9,1],['hero',90,205,1.3]],RV,'Come, little archer. My ten heads see everything.','boom']]},
+ v3:{t:'LANKA OUTSKIRTS',s:[['fire','R',[['army',60,212,.8]],N,'Lanka burns. Asura forward camps glow like coals on the horizon.','boom'],
+ ['fire','in',[['rav',300,185,.9,1],['hero',90,205,1.3]],RV,'Come, little archer. My ten heads see everything. Each one has already watched you die.','boom'],
+ ['fire','L',[['hero',120,205,1.5]],N,'You do not answer him - you loose an arrow into the dark for every village he has taken.','chime']]},
  v4:{t:'SETU BANDHA',s:[['sea','L',[['hanu',90,195,1.4],['hero',200,205,1.3]],HA,'The Setu rises stone by stone from the sea. Hold the bridge!','chime'],['sea','in',[['rav',320,170,.7,1]],N,'Beyond the water, the golden towers of Lanka wait. The road to Ravana is open.']]},
- fin:{t:'THE FINAL BATTLE',s:[['war','sh',[['rav',200,200,1.7]],RV,'Ten heads, and I have waited for each of you.','boom'],['war','in',[['hero',150,205,1.8]],N,'The astras blaze in your hands.','chime'],['war','R',[['rishi',90,200,1.3],['hero',250,205,1.3,1]],RI,'Dharma is stronger than a thousand heads. Strike true!','chime']]},
+ fin:{t:'THE FINAL BATTLE',s:[['war','sh',[['rav',200,200,1.7]],RV,'Ten heads, and I have waited for each of you.','boom'],
+ ['war','in',[['hero',150,205,1.8]],N,'The astras blaze in your hands - every god you called still stands behind you.','chime'],
+ ['war','R',[['rishi',90,200,1.3],['hero',250,205,1.3,1]],RI,'Dharma is stronger than a thousand heads. Strike true, and do not look back.','chime']]},
  win:{t:'DHARMA PREVAILS',s:[['war','out',[['rav',200,200,1.4]],N,'The ten heads fall silent, one by one.','boom'],['dawn','R',[['rishi',120,200,1.3],['hanu',260,195,1.3,1]],HA,'It is over. The sun rises on a free Lanka.','chime'],['dawn','in',[['hero',200,205,1.7]],N,'The villages are safe. Your legend is sung across the land.','chime']]}};
 for(const k in BI)SB['b'+k]={t:k,auto:1,s:[['war','sh',[['boss',200,195,1.6,0,BI[k][0]]],k,BI[k][1],'boom']]};
 function art(d){const[,c1,c2,oc,hc,fx]=d;let x=`<defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><rect width="400" height="260" fill="url(#sg)"/>`;
@@ -1477,7 +1610,7 @@ function art(d){const[,c1,c2,oc,hc,fx]=d;let x=`<defs><linearGradient id="sg" x1
  return `<svg viewBox="0 0 400 260" preserveAspectRatio="xMidYMid slice">${x}${d[8]||''}</svg>`}
 function story(k){const d=SB[k];if(!d||seen[k]||storyOn||paused||ritual||!active)return;seen[k]=1;storyOn=paused=true;
  const el=$('story'),out=$('sL'),sv=$('sArt'),cd=$('sCard');let i=0,ci=0,tm=null,au=null,txt='';cd.textContent=d.t;cd.className='';void cd.offsetWidth;cd.className='on';el.className='on';
- const show=()=>{const h=d.s[i],bg=SC[h[0]];sv.innerHTML=art(['',...bg,'',1,h[2].map(a=>CH[a[0]](...a.slice(1))).join('')]);if(sv.firstChild)sv.firstChild.style.animation='fi .7s ease-out,c'+h[1]+' 9s ease-out forwards';$('sT').textContent=h[3];$('sT').style.color=SP[h[3]]||'#ffd98a';
+ const show=()=>{const h=d.s[i],bg=SC[h[0]];sv.innerHTML=art(['',...bg,'',1,h[2].map(a=>CH[a[0]](...a.slice(1))).join('')]);if(sv.firstChild)sv.firstChild.style.animation='fi .9s ease-out,c'+h[1]+' 9s ease-out forwards,cammove 9s linear forwards';$('sT').textContent=h[3];$('sT').style.color=SP[h[3]]||'#ffd98a';
   try{if(h[5]==='boom')sound(70,.5,'sawtooth',.06);else if(h[5]==='chime')sound(988,.5,'sine',.04)}catch(e){}
   txt=h[4];ci=0;out.textContent='';clearInterval(tm);tm=setInterval(()=>{out.textContent=txt.slice(0,++ci);if(ci>=txt.length){clearInterval(tm);if(d.auto)au=setTimeout(next,1800)}},30)},
  close=()=>{clearInterval(tm);clearTimeout(au);el.className='';cd.className='';storyOn=false;paused=false},
