@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='52' font-size='52'>🏹</text></svg>">
 <meta name="theme-color" content="#100b18">
-<title>ASTRA: The Asura War v7.6 — Village Edition</title>
+<title>ASTRA: The Asura War v7.7 — Story Edition</title>
 <style>
 :root{--gold:#ffd27b;--cyan:#82eaff;--violet:#c3a0ff;--red:#ff7182;--bg:#100b18;--pad:clamp(112px,31vw,150px)}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:system-ui,Segoe UI,Arial,sans-serif;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
@@ -168,6 +168,22 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
  background:linear-gradient(#05030a 0%,transparent 12%,transparent 88%,#05030a 100%)}
 /* slow push-in on every story beat, on top of the existing ken-burns */
 #sArt svg{animation:kb 14s ease-out forwards,beatPulse 9s ease-in-out infinite alternate}
+/* parallax: each depth plane drifts at its own rate against the camera push */
+#sArt .h0{animation:drift 22s ease-in-out infinite alternate}
+#sArt .h1{animation:drift 16s ease-in-out infinite alternate-reverse}
+#sArt .h2{animation:drift 11s ease-in-out infinite alternate}
+#sArt .cl{animation:slide 26s linear infinite}
+#sArt .bd{animation:fly 12s linear infinite}
+@keyframes drift{from{transform:translateX(-14px)}to{transform:translateX(14px)}}
+@keyframes slide{from{transform:translateX(-120px)}to{transform:translateX(520px)}}
+@keyframes fly{from{transform:translate(-40px,0)}to{transform:translate(460px,-26px)}}
+/* the chapter card types itself in, then settles */
+#sCard{animation:cardIn .7s cubic-bezier(.2,.9,.25,1) both}
+@keyframes cardIn{from{opacity:0;transform:translateY(-14px) scale(.94);letter-spacing:.6em}
+                  to{opacity:1;transform:none;letter-spacing:.22em}}
+/* text panel rises like a subtitle, not a paragraph appearing */
+#sL,#sT{animation:subIn .6s ease-out both}
+@keyframes subIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes beatPulse{from{filter:brightness(1) saturate(1)}to{filter:brightness(1.14) saturate(1.2)}}
 #sArt .flicker{animation:flick 3.2s steps(3) infinite}
 @keyframes flick{0%,100%{opacity:.9}33%{opacity:.6}66%{opacity:1}}
@@ -371,7 +387,7 @@ body.lefty #leftPad{left:auto!important;right:14px!important}body.lefty #rightPa
 <div id="story"><div id="sArt"></div><button id="sSkip" class="weapon">SKIP ▸▸</button><div id="sCard"></div><div id="sBox"><div id="sT"></div><div id="sL"></div><div id="sHint">tap to continue</div></div></div>
 <div class="overlay" id="pauseOv" style="display:none"><div class="panel" style="text-align:center"><h2>PAUSED</h2><p><button class="weapon" id="autoBtn"></button> <button class="weapon" id="hapBtn"></button></p><p><button class="weapon" id="musBtn"></button> <button class="weapon" id="mantBtn"></button></p><p>MUSIC VOLUME<br><input id="volR" type="range" min="0" max="100" value="100" style="width:70%"></p><p><button class="weapon" id="lefBtn"></button> <button class="weapon" id="perfBtn"></button> <button class="weapon" id="fsBtn">FULLSCREEN</button></p>
 <p><button class="weapon" id="howPause">HOW TO PLAY</button> <button class="weapon" id="resumeBtn">RESUME</button></p><small>P / Esc also pauses</small></div></div>
-<div id="howto" class="overlay"><div class="panel" id="howPanel"><div class="kicker">ASTRA · THE ASURA WAR · v7.6</div><h2>HOW TO PLAY</h2><div class="htabs" id="howTabs"></div><div id="howBody"></div><div class="hfoot"><button id="howTour">▶ GUIDED TOUR</button><button id="howClose" class="weapon" style="padding:12px 18px;font-size:11px">CLOSE</button></div></div></div>
+<div id="howto" class="overlay"><div class="panel" id="howPanel"><div class="kicker">ASTRA · THE ASURA WAR · v7.7</div><h2>HOW TO PLAY</h2><div class="htabs" id="howTabs"></div><div id="howBody"></div><div class="hfoot"><button id="howTour">▶ GUIDED TOUR</button><button id="howClose" class="weapon" style="padding:12px 18px;font-size:11px">CLOSE</button></div></div></div>
 <div id="coach"><div id="cSpot"></div><div id="cTip"><h3 id="cT"></h3><p id="cX"></p><div class="cb"><button id="cBack" class="weapon">◂ BACK</button><small id="cN"></small><button id="cNext">NEXT ▸</button></div><div style="text-align:center;margin-top:8px"><button id="cSkip" class="weapon" style="font-size:9px;padding:5px 10px">SKIP TOUR</button></div></div></div>
 <div id="mantra"><div class="mdl"></div><div class="mdl b"></div><div class="mw"><div class="mk" id="mGod"></div><div class="md" id="mDev"></div><div class="mr" id="mRom"></div><div class="mm" id="mMean"></div><div class="mbar"><i id="mFill"></i></div><div class="ms" id="mSkip">TAP TO CONTINUE</div></div></div>
 <div id="mobile" style="display:none"><button id="pauseBtn" class="weapon">II</button><div class="pad" id="leftPad"><div class="knob"></div></div><div class="pad" id="rightPad"><div class="knob"></div></div><button id="dashBtn">DASH</button><button id="divineBtn">DIVINE AID</button></div>
@@ -977,7 +993,7 @@ function update(dt){
  if(tg)hero.angle=Math.atan2(tg.y-hero.y,tg.x-hero.x);else if(Math.hypot(aim.x,aim.y)>.15)hero.angle=Math.atan2(aim.y,aim.x);else if(mouse.active){let target=worldAt(mouse.x,mouse.y);hero.angle=Math.atan2(target.y-hero.y,target.x-hero.x)}else if(l>.05)hero.angle=Math.atan2(my,mx);
  if(mouse.down||keys.Space||tg||Math.hypot(aim.x,aim.y)>.25)fire();
  spawn-=dt;if(spawn<=0){if(mode!=='rush'){const cnt=Math.min(2+Math.floor(wave*.5*diffMul),Math.floor(7*diffMul));for(let i=0;i<cnt;i++)spawnAsura()}spawn=Math.max(.34,1.15-wave*.055)/diffMul}
- let nextWave=1+Math.floor(elapsed/modeWaveRate);if(nextWave>wave){wave=nextWave;toast('ASURA LEGION · WAVE '+wave);if((wave-1)%4===0){const V=VIL[vi()];toast(V.n+' · '+V.s);story('v'+vi());$('objective').textContent=V.n+' · '+V.s;ring(hero.x,hero.y,V.t,520);shake=8}ring(hero.x,hero.y,'#ffe1a0',420);sound(240,.3,'sine',.04);waveCue();spawnCitizens(false);if(wave>=4&&wave%3===1&&saints.length&&!asuras.some(e=>e.guru))spawnGuru();if(wave%2===0)spawnSaint();
+ let nextWave=1+Math.floor(elapsed/modeWaveRate);if(nextWave>wave){wave=nextWave;toast('ASURA LEGION · WAVE '+wave);if((wave-1)%4===0){const V=VIL[vi()];toast(V.n+' · '+V.s);story('v'+(vi()%5));$('objective').textContent=V.n+' · '+V.s;ring(hero.x,hero.y,V.t,520);shake=8}ring(hero.x,hero.y,'#ffe1a0',420);sound(240,.3,'sine',.04);waveCue();spawnCitizens(false);if(wave>=4&&wave%3===1&&saints.length&&!asuras.some(e=>e.guru))spawnGuru();if(wave%2===0)spawnSaint();
   // mode cadence: ENDLESS puts a warlord on every wave, STORY every other wave,
   // BOSS RUSH has no waves at all (handled below) so the player only ever duels warlords
   if(!boss&&(mode==='endless'||(mode==='story'&&wave%2===0)))spawnBoss()}
@@ -1756,12 +1772,15 @@ function loop(t){const raw=Math.min((t-last)||16,100);fpsT=fpsT*.93+raw*.07;lite
  if(liteT>1.5&&active){liteT=0;if(fpsT>24&&!lite){lite=true;toast('SMOOTH MODE ON · FEWER EFFECTS');fpsT=16}if(fpsT>30&&!perf){perf=true;resize()}}
  let dt=Math.min((t-last)/1000||0,.033);last=t;try{if(active&&!paused&&!ritual){try{pollPad()}catch(e){}}update(dt);draw()}catch(err){console.error(err)}raf=requestAnimationFrame(loop)}
 function start(){try{killMenu()}catch(e){}initAudio();startMusic();loadAud();navigator.wakeLock&&navigator.wakeLock.request('screen').catch(()=>{});try{if(TTS.ok){const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}}catch(e){}reset();active=true;paused=false;$('menu').style.display='none';$('end').style.display='none';$('hud').style.display='block';$('mobile').style.display=(device.touch&&!device.pad)?'block':'none';{const hh=document.getElementById('help');if(hh)hh.style.display=$('mobile').style.display==='block'?'none':''}last=performance.now();if(!raf)raf=requestAnimationFrame(loop);
+ /* the opening chapter: this was authored but nothing ever called it */
+ setTimeout(()=>{try{story('v0')}catch(e){}},520);   // queued behind the coach tour if one starts
  {const h=$('help');if(h)h.textContent=device.touch
    ?'DRAG LEFT PAD TO MOVE · DRAG RIGHT PAD TO AIM & CAST · 1–7 / STRIP SELECTS ASTRA · DASH BUTTON DODGES · DIVINE AID BUTTON CALLS A GOD'
    :(device.pad?'GAMEPAD / KEYBOARD: WASD MOVE · MOUSE OR RIGHT STICK AIM · CLICK OR SPACE CAST · 1–7 SELECT ASTRA · SHIFT DASH · Q DIVINE AID'
    :'WASD MOVE · MOUSE AIM · CLICK / SPACE CAST · 1–7 SELECT ASTRA · STAND STILL TO EMPOWER NARAYANA · BOSSES UNLOCK ASTRAS · Q DIVINE HELPLINE · SHIFT DASH')}
  toast('THE ASTRAS AWAKEN'+(device.touch?' · TOUCH CONTROLS':' · '+ (device.pad?'GAMEPAD READY':'KEYBOARD + MOUSE')));sound(520,.25,'sine',.04)}
 /* ===== HOW TO PLAY: guide pages with live sprites + interactive coach tour ===== */
+let storyQ=null;
 let tutT=0,tutRaf=0,tutCvs=[],howOpen=false,coachOn=false,tutPending=false,coachI=0,coachSteps=[];
 const CIT_VOICE=['Thank you!','We prayed you would come!','Save my family!','Praise the astras!','Please hurry!','We believe in you!','Do not leave us!','You are our hope!'];
 const TS={get:()=>{try{return localStorage.getItem('astraTutDone')}catch(e){return null}},set:()=>{try{localStorage.setItem('astraTutDone','1')}catch(e){}}};
@@ -1814,7 +1833,8 @@ function coachShow(){const S=coachSteps[coachI],tip=$('cTip'),sp=$('cSpot');if(c
  if(r){const p=8;sp.style.cssText='display:block;left:'+(r.left-p)+'px;top:'+(r.top-p)+'px;width:'+(r.width+2*p)+'px;height:'+(r.height+2*p)+'px';tip.style.visibility='hidden';const th=tip.offsetHeight||150,tw=tip.offsetWidth||320;let ty=r.top+r.height+p+12;if(ty+th>H-8)ty=r.top-p-12-th;if(ty<8)ty=Math.min(H-th-8,Math.max(8,H/2-th/2));tip.style.left=Math.max(8,Math.min(W-tw-8,r.left+r.width/2-tw/2))+'px';tip.style.top=ty+'px';tip.style.visibility='visible'}
  else{sp.style.cssText='display:block;left:50%;top:50%;width:0;height:0';tip.style.left=Math.max(8,W/2-170)+'px';tip.style.top=Math.max(8,H/2-90)+'px'}}
 function startCoach(){if(!active||coachOn)return;coachOn=true;paused=true;coachSteps=buildSteps();coachI=0;$('coach').style.display='block';coachShow()}
-function endCoach(){if(coachShow.prev)coachShow.prev();coachShow.prev=null;coachOn=false;$('coach').style.display='none';$('cSpot').style.cssText='';TS.set();if($('pauseOv').style.display!=='grid')paused=false}
+function endCoach(){if(coachShow.prev)coachShow.prev();coachShow.prev=null;coachOn=false;$('coach').style.display='none';$('cSpot').style.cssText='';TS.set();if($('pauseOv').style.display!=='grid')paused=false;
+ if(storyQ){const q=storyQ;storyQ=null;setTimeout(()=>{try{story(q)}catch(e){}},260)}}
 $('cNext').onclick=()=>{if(coachI>=coachSteps.length-1)endCoach();else{coachI++;coachShow()}};$('cBack').onclick=()=>{if(coachI>0){coachI--;coachShow()}};$('cSkip').onclick=endCoach;
 addEventListener('keydown',e=>{if(coachOn){if(e.code==='Enter'||e.code==='ArrowRight'||e.code==='Space'){e.preventDefault();$('cNext').click()}else if(e.code==='ArrowLeft')$('cBack').click();else if(e.code==='Escape')endCoach()}else if(howOpen&&e.code==='Escape'){closeHow()}},true);
 addEventListener('resize',()=>{if(coachOn)coachShow()});
@@ -1857,40 +1877,79 @@ CH={hero:(x,y,k,f)=>`<g transform="${T(x,y,k,f)}"><g class="bob"><g class="sf"><
 SC={forest:['#0e1f2a','#3c8a4a','#ffe9a8','#12301f','stars'],hills:['#3a1f12','#c8803c','#ffd08a','#3b2414','mist'],mist:['#120f26','#6a4cc0','#d6caff','#1a1533','mist'],fire:['#2a0c0c','#d03a30','#ff9a5a','#3a1210','fire'],sea:['#06222c','#3aa0c8','#e0f6ff','#0b2f3c','waves'],war:['#1a0509','#7a1d2a','#ffc27a','#240a10','fire'],dawn:['#2b1b0a','#e8b04a','#fff1c2','#3a2610','stars']},
 SP={NARRATOR:'#ffd98a',RISHI:'#bfe8ff',HANUMAN:'#ffb070',RAVANA:'#ff7a7a'},N='NARRATOR',RI='RISHI',HA='HANUMAN',RV='RAVANA',
 BI={TATAKA:['#4a7a52','I ate the sages of this forest. Come, child, be my next meal.'],KHARA:['#8a3a3a','Fourteen thousand rakshasas march beneath my banner!'],MAHISHASURA:['#8a5a3a','No god or man can slay me. Try your arrows.'],MARICHA:['#d8a84a','Follow the golden deer... if you dare.'],KUMBHAKARNA:['#6b6a8a','Who dares wake me from my sleep?'],NARAKASURA:['#b65d43','The tyrant of Pragjyotisha bows to no one.'],INDRAJIT:['#5a4aa0','You cannot strike what you cannot see.']},
-SB={v0:{t:'PROLOGUE · PANCHAVATI',s:[
- ['dawn','in',[['rishi',120,200,1.3]],N,'Before the first village burned, there were only stars, and the long silence of the rishis.','chime'],
- ['forest','L',[['rishi',120,200,1.3]],N,'In the age of Treta, dharma was shaken. Ravana, the ten-headed king of Lanka, sent his Asura legions across the land.','boom'],
- ['war','R',[['army',10,212,.8]],N,'Village by village, the forests fell to shadow. Its five rivers of blessing still in their veins, the rishis kept chanting.'],
- ['forest','in',[['rishi',110,200,1.5],['hero',250,200,1.3,1]],RI,'Child of the astras - the celestial weapons answer to you alone, and age does not yet own your hands.','chime'],
- ['fire','L',[['army',40,212,.8],['hero',250,205,1.2,1]],N,'Astra is not a spear. It is the vow to make the weapon answer a promise: do not let the town burn.','boom'],
- ['forest','in',[['hero',150,205,1.7]],RI,'Stand at the temple wall. Guard the villagers. Carry dharma to Lanka.','chime'],
- ['war','sh',[['army',200,212,.7],['hero',70,205,1.3]],N,'Panchavati, the first village. The Asuras are already at the gates.','boom']]},
- v1:{t:'KISHKINDHA',s:[['hills','R',[['hanu',120,195,1.5]],HA,'Hail, bearer of the astras! I am Hanuman. The vanara folk shelter in these hills.','chime'],['hills','L',[['hanu',250,195,1.4,1],['hero',100,205,1.3]],HA,'Lanka has taken Sita-ma. Hold Kishkindha, and I will fight beside you.'],['hills','in',[['rishi',200,200,1.3]],N,'In your darkest hour, call upon the gods. Divine Aid will answer.','chime']]},
- v2:{t:'DANDAKARANYA',s:[['mist','L',[['army',20,212,.7]],N,'Maya fog rolls through the Dandaka forest. Asura archers hide in the mist.'],['mist','in',[['rishi',140,200,1.3],['hero',260,205,1.2,1]],RI,'Trust your astras, not your eyes. The fog hides arrows, not dharma.','chime']]},
- v3:{t:'LANKA OUTSKIRTS',s:[['fire','R',[['army',60,212,.8]],N,'Lanka burns. Asura forward camps glow like coals on the horizon.','boom'],
+/* ============================================================================
+   THE STORY - one continuous epic, seven chapters.
+   Chapters are no longer disconnected scenes: each picks up the last line of
+   the one before it, and every act ends on a decision the player then fights.
+   Beats carry a camera move (in/out/L/R/sh) and a mood, so the panels read as
+   shots rather than slides.
+   ============================================================================ */
+SB={
+v0:{t:'I · THE FIRST VOW',s:[
+ ['dawn','in',[['rishi',120,200,1.3]],N,'In Treta Yuga, before the first village burned, there were only stars and the long chanting of rishis.','chime'],
+ ['forest','L',[['rishi',120,200,1.3]],RI,'You are late, child. The forest has been screaming for three nights.','chime'],
+ ['war','R',[['army',10,212,.8],['rishi',300,200,1.1,1]],N,'Ravana, the ten-headed king of Lanka, had sent his legions out to break the spine of dharma one village at a time.','boom'],
+ ['forest','in',[['rishi',110,200,1.5],['hero',250,200,1.3,1]],RI,'Look at your hands. Those are not hands. Those are a promise the gods made to the world, and now the world is collecting.','chime'],
+ ['fire','L',[['army',40,212,.8],['hero',250,205,1.2,1]],N,'The first arrow you ever loose is the one you will be judged by. He did not tell you that. You learned it anyway.','boom'],
+ ['forest','in',[['hero',150,205,1.7]],RI,'Stand at the temple wall, and do not let a single roof burn. Then we will speak of Lanka.','chime'],
+ ['war','sh',[['army',200,212,.7],['hero',70,205,1.3]],N,'Panchavati. The Asuras are already at the gates.','boom']]},
+
+v1:{t:'II · KISHKINDHA',s:[
+ ['hills','R',[['hanu',120,195,1.5]],HA,'Hail, bearer of the astras. I am Hanuman - and before you ask, yes, I have heard of Panchavati.','chime'],
+ ['hills','L',[['hanu',250,195,1.4,1],['hero',100,205,1.3]],HA,'You held the temple. Good. Now hold these hills, because the vanara folk have nowhere else left to stand.','chime'],
+ ['hills','in',[['rishi',200,200,1.3],['hanu',90,195,1.1,1]],RI,'Lanka has taken Sita-ma. Every road from here leads to her, and every road is guarded.','boom'],
+ ['hills','L',[['hanu',200,195,1.6]],HA,'In your darkest hour, call on the gods. They are slow to answer, but they do answer. I should know. I carry one in my chest.','chime']]},
+
+v2:{t:'III · DANDAKARANYA',s:[
+ ['mist','L',[['army',20,212,.7]],N,'The mist that swallowed Kishkindha followed you here. Or it was waiting. In Dandaka, you stop asking which.','boom'],
+ ['mist','in',[['rishi',140,200,1.3],['hero',260,205,1.2,1]],RI,'Trust the astras, not your eyes. Maya can hide an arrow. It has never once hidden dharma.','chime'],
+ ['mist','R',[['army',180,212,.9],['rav',40,185,.9,1]],RV,'You are walking into my forest with a bow and a promise. I have broken better men with a word.','boom'],
+ ['mist','in',[['hero',200,205,1.6]],N,'You say nothing. In the fog, silence is the only armour that does not shine.','chime']]},
+
+v3:{t:'IV · LANKA OUTSKIRTS',s:[
+ ['fire','R',[['army',60,212,.8]],N,'Lanka burns. But it is the Asuras own camps that are burning - they set them alight so you cannot see how many of them there are.','boom'],
  ['fire','in',[['rav',300,185,.9,1],['hero',90,205,1.3]],RV,'Come, little archer. My ten heads see everything. Each one has already watched you die.','boom'],
- ['fire','L',[['hero',120,205,1.5]],N,'You do not answer him - you loose an arrow into the dark for every village he has taken.','chime']]},
- v4:{t:'SETU BANDHA',s:[['sea','L',[['hanu',90,195,1.4],['hero',200,205,1.3]],HA,'The Setu rises stone by stone from the sea. Hold the bridge!','chime'],['sea','in',[['rav',320,170,.7,1]],N,'Beyond the water, the golden towers of Lanka wait. The road to Ravana is open.']]},
- fin:{t:'THE FINAL BATTLE',s:[['war','sh',[['rav',200,200,1.7]],RV,'Ten heads, and I have waited for each of you.','boom'],
- ['war','in',[['hero',150,205,1.8]],N,'The astras blaze in your hands - every god you called still stands behind you.','chime'],
+ ['fire','L',[['hero',120,205,1.5]],N,'You do not answer him. You loose one arrow for every village he has taken, and you have been counting for a long time.','chime']]},
+
+v4:{t:'V · SETU BANDHA',s:[
+ ['sea','L',[['hanu',90,195,1.4],['hero',200,205,1.3]],HA,'The Setu rises stone by stone out of the sea. Hold the bridge and the whole army crosses. Lose it and we swim.','chime'],
+ ['sea','in',[['rav',320,170,.7,1]],N,'Beyond the water the golden towers of Lanka wait, and behind them a throne that has never been empty.','boom'],
+ ['sea','R',[['hanu',240,195,1.5]],HA,'One more thing. When you reach him, do not speak. He wins every conversation. He has never won a silence.','chime']]},
+
+fin:{t:'VI · THE TEN HEADS',s:[
+ ['war','sh',[['rav',200,200,1.7]],RV,'Ten heads, and I have waited for each of you.','boom'],
+ ['war','in',[['hero',150,205,1.8]],N,'The astras blaze in your hands - and behind you stand every god you ever dared to call.','chime'],
  ['war','R',[['rishi',90,200,1.3],['hero',250,205,1.3,1]],RI,'Dharma is stronger than a thousand heads. Strike true, and do not look back.','chime']]},
- win:{t:'DHARMA PREVAILS',s:[['war','out',[['rav',200,200,1.4]],N,'The ten heads fall silent, one by one.','boom'],['dawn','R',[['rishi',120,200,1.3],['hanu',260,195,1.3,1]],HA,'It is over. The sun rises on a free Lanka.','chime'],['dawn','in',[['hero',200,205,1.7]],N,'The villages are safe. Your legend is sung across the land.','chime']]}};
+
+win:{t:'VII · DHARMA PREVAILS',s:[
+ ['war','out',[['rav',200,200,1.4]],N,'The ten heads fall silent, one by one, the way a storm stops - not all at once, but as if it forgot why it was angry.','boom'],
+ ['dawn','R',[['rishi',120,200,1.3],['hanu',260,195,1.3,1]],HA,'It is over. Say it out loud, or the world will not believe it.','chime'],
+ ['dawn','in',[['hero',200,205,1.7]],RI,'The villages are safe. The rishis will chant your name for a thousand years, and they will get the details wrong.','chime'],
+ ['dawn','sh',[['hero',200,205,1.5],['rishi',90,200,1.1,1]],N,'That is what a legend is: a true thing, told badly, forever.','chime']]}};
 for(const k in BI)SB['b'+k]={t:k,auto:1,s:[['war','sh',[['boss',200,195,1.6,0,BI[k][0]]],k,BI[k][1],'boom']]};
 function art(d){const[,c1,c2,oc,hc,fx]=d;let x=`<defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><rect width="400" height="260" fill="url(#sg)"/>`;
  if(fx==='stars')for(let i=0;i<26;i++)x+=`<circle class="tw" style="animation-delay:${(i%7)*.4}s" cx="${(i*47)%400}" cy="${(i*29)%110}" r="${1+i%2}" fill="#fff"/>`;
  x+=`<g class="ry" fill="${oc}" opacity=".1">`+[0,1,2,3,4,5].map(i=>`<path d="M290 110L${290+Math.cos(i*1.0472)*500} ${110+Math.sin(i*1.0472)*500}L${290+Math.cos(i*1.0472+.2)*500} ${110+Math.sin(i*1.0472+.2)*500}Z"/>`).join('')+'</g>';x+=`<circle class="orb" cx="290" cy="110" r="34" fill="${oc}"/>`;
  if(fx==='mist')x+=`<rect class="ms" x="-100" y="150" width="600" height="40" fill="#fff" opacity=".12"/>`;
  if(fx==='waves')for(let i=0;i<4;i++)x+=`<path class="wv" style="animation-delay:${i*.5}s" d="M-40 ${190+i*14} q20 -8 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0" stroke="#bfefff" stroke-width="2" fill="none" opacity=".5"/>`;
+ /* drifting cloud bank behind the hills - the cheapest honest depth cue */
+ if(fx!=='fire')for(let i=0;i<4;i++)x+=`<ellipse class="cl" style="animation-delay:${i*2.3}s;animation-duration:${26+i*7}s" cx="${60+i*110}" cy="${58+((i*29)%34)}" rx="${34+i*12}" ry="${9+i*3}" fill="#fff" opacity=".07"/>`;
+ /* three parallax hill planes at different speeds: far, mid, near */
+ x+=`<path class="h0" d="M-60 150 Q30 108 120 146 T300 140 T520 152 V260 H-60Z" fill="${hc}" opacity=".45"/>`;
  x+=`<path class="h1" d="M-60 195 Q40 140 140 185 T340 175 T520 195 V260 H-60Z" fill="${hc}" opacity=".7"/><path class="h2" d="M-60 215 Q80 180 180 210 T400 205 T520 220 V260 H-60Z" fill="${hc}"/>`;
  if(fx==='fire')x+=`<g class="fl"><path d="M300 215 q-14 -40 4 -62 q4 24 22 32 q6 -14 -2 -30 q30 30 10 60z" fill="#ff7a2a"/><path d="M330 220 q-10 -28 2 -44 q4 16 16 22 q2 10 -2 22z" fill="#ffd25a"/></g>`;
  if(fx!=='waves')x+=`<path d="M310 205V172h56V205ZM320 172l18-36l18 36ZM338 136v-14" fill="${hc}"/><circle class="kl" cx="338" cy="118" r="4" fill="${oc}"/>`;
- if(fx!=='stars'&&fx!=='fire')for(let i=0;i<3;i++)x+=`<g transform="translate(0 ${30+i*14})"><path class="bd" style="animation-delay:${i*1.7}s" d="M0 0q6-7 12 0q6-7 12 0" stroke="#0a0710" stroke-width="1.6" fill="none"/></g>`;
+ if(fx!=='stars'&&fx!=='fire')for(let i=0;i<3;i++)x+=`<path class="bd" style="animation-delay:${i*1.9}s;animation-duration:${11+i*3}s" d="M0 ${34+i*13}q6-7 12 0q6-7 12 0" stroke="#0a0710" stroke-width="1.6" fill="none"/>`;
  for(let i=0;i<10;i++)x+=`<circle class="em" style="animation-delay:${i*.45}s" cx="${40+i*34}" cy="235" r="1.6" fill="${fx==='fire'?'#ffb04a':oc}"/>`;
  if(!d[7])x+=`<g class="bob" fill="#07040c"><circle cx="86" cy="168" r="7"/><path d="M78 177h16l5 36H73z"/><path class="sf" d="M82 174q-18 4-26-2q10 12 26 8z"/><path d="M108 156q22 28 0 60" stroke="#07040c" stroke-width="2.5" fill="none"/><line class="ar" x1="100" y1="186" x2="130" y2="186" stroke="#ffe28a" stroke-width="2"/></g>`;
  return `<svg viewBox="0 0 400 260" preserveAspectRatio="xMidYMid slice">${x}${d[8]||''}</svg>`}
-function story(k){const d=SB[k];if(!d||seen[k]||storyOn||paused||ritual||!active)return;seen[k]=1;storyOn=paused=true;
+function story(k){const d=SB[k];if(!d||seen[k]||storyOn||ritual||!active)return;
+ if(paused&&!coachOn)return;                     // another overlay owns the pause
+ if(coachOn||$('upgrade').style.display==='grid'||$('codex').style.display==='grid'){storyQ=k;return}  // queue itseen[k]=1;storyOn=paused=true;
  const el=$('story'),out=$('sL'),sv=$('sArt'),cd=$('sCard');let i=0,ci=0,tm=null,au=null,txt='';cd.textContent=d.t;cd.className='';void cd.offsetWidth;cd.className='on';el.className='on';
  const show=()=>{const h=d.s[i],bg=SC[h[0]];sv.innerHTML=art(['',...bg,'',1,h[2].map(a=>CH[a[0]](...a.slice(1))).join('')]);if(sv.firstChild)sv.firstChild.style.animation='fi .9s ease-out,c'+h[1]+' 9s ease-out forwards,cammove 9s linear forwards';$('sT').textContent=h[3];$('sT').style.color=SP[h[3]]||'#ffd98a';
+  /* replay the beat-in animations so each shot lands fresh */
+  for(const id of ['sT','sL']){const e2=$(id);e2.style.animation='none';void e2.offsetWidth;e2.style.animation=''}
   try{if(h[5]==='boom')sound(70,.5,'sawtooth',.06);else if(h[5]==='chime')sound(988,.5,'sine',.04)}catch(e){}
   txt=h[4];ci=0;out.textContent='';clearInterval(tm);tm=setInterval(()=>{out.textContent=txt.slice(0,++ci);if(ci>=txt.length){clearInterval(tm);if(d.auto)au=setTimeout(next,1800)}},30)},
  close=()=>{clearInterval(tm);clearTimeout(au);el.className='';cd.className='';storyOn=false;paused=false},
